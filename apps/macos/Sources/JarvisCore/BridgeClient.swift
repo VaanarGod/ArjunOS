@@ -154,6 +154,29 @@ public actor BridgeClient {
                                                                  attachmentContextChars: attachmentContextChars, shellEnabled: shellEnabled, filesEnabled: filesEnabled, readPaths: readPaths, browserEnabled: browserEnabled, pageContextChars: pageContextChars))
     }
 
+    // MARK: Computer use
+    struct ComputerSettingsBody: Encodable {
+        var computerConsented: Bool?; var computerBrowserEnabled: Bool?; var computerDesktopEnabled: Bool?; var computerAutoStart: Bool?
+        var computerApproval: String?; var computerMaxSteps: Int?; var computerBrowserProfile: String?; var computerScreenshotDim: Int?
+        var computerMarks: Bool?; var computerDesktopBackend: String?; var computerCuaCommand: String?; var computerDisplay: String?
+    }
+    @discardableResult
+    public func updateComputerSettings(consented: Bool? = nil, browser: Bool? = nil, desktop: Bool? = nil, autoStart: Bool? = nil,
+                                       approval: String? = nil, maxSteps: Int? = nil, profile: String? = nil, screenshotDim: Int? = nil,
+                                       marks: Bool? = nil, backend: String? = nil, cuaCommand: String? = nil, display: String? = nil) async throws -> AppSettings {
+        try await send("PUT", "/v1/settings", body: ComputerSettingsBody(computerConsented: consented, computerBrowserEnabled: browser, computerDesktopEnabled: desktop,
+                                                                         computerAutoStart: autoStart, computerApproval: approval, computerMaxSteps: maxSteps,
+                                                                         computerBrowserProfile: profile, computerScreenshotDim: screenshotDim,
+                                                                         computerMarks: marks, computerDesktopBackend: backend, computerCuaCommand: cuaCommand, computerDisplay: display))
+    }
+    /// Answers one `computer_request`. The bridge is waiting for it; a 404 means the task already ended.
+    public func postComputerResult(id: String, _ result: ComputerResult) async throws {
+        let data = try encoder.encode(result)
+        let _: Ack = try await perform(makeRequest("/v1/computer/requests/\(id)/result", method: "POST", body: data, timeout: 30), as: Ack.self)
+    }
+    public struct StopResult: Codable, Sendable { public var stopped: Int }
+    @discardableResult public func stopComputer() async throws -> Int { (try await send("POST", "/v1/computer/stop", as: StopResult.self)).stopped }
+
     // MARK: Sandboxed terminal
     public func shellStatus() async throws -> ShellStatus { try await get("/v1/shell/status") }
     /// Runs fixed probes that try to delete / write / spawn / connect / read from INSIDE the sandbox. All must be blocked.
@@ -198,13 +221,15 @@ public actor BridgeClient {
         struct Msg: Encodable { var role: String; var content: String; var attachments: [Att]? }
         var endpoint: String; var model: String; var messages: [Msg]
         var page: PagePayload?               // the active browser tab, when the user wants to ask about it
+        struct ComputerOption: Encodable { var mode: String }
+        var computer: ComputerOption?        // the user switched computer use on (browser | desktop) for this message
     }
     /// Streams events; cancelling the consuming Task cancels the HTTP request.
-    public func chatStream(endpoint: String, model: String, messages: [ChatMessage], page: PagePayload? = nil) throws -> AsyncThrowingStream<ChatEvent, Error> {
+    public func chatStream(endpoint: String, model: String, messages: [ChatMessage], page: PagePayload? = nil, computerMode: String? = nil) throws -> AsyncThrowingStream<ChatEvent, Error> {
         let body = ChatBody(endpoint: endpoint, model: model, messages: messages.map { m in
             .init(role: m.role, content: m.content, attachments: m.attachments?.map {
                 .init(name: $0.name, kind: $0.kind, text: $0.text, imageB64: $0.imageBase64, note: $0.note) })
-        }, page: page)
+        }, page: page, computer: computerMode.map { .init(mode: $0) })
         let req = makeRequest("/v1/chat", method: "POST", body: try encoder.encode(body), timeout: 600)
         let session = self.session, decoder = self.decoder
         return AsyncThrowingStream { continuation in

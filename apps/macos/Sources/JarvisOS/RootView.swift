@@ -15,7 +15,7 @@ struct RootView: View {
     }
 
     var body: some View {
-        let browser = model.browser
+        let browser = model.visibleBrowser
         ZStack {
             AmbientBackground(paused: model.windowIdle)
             GeometryReader { geo in

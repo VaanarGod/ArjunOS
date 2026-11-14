@@ -167,6 +167,7 @@ public struct ChatEvent: Codable, Sendable, Equatable {
     public var vaultSaved: VaultRef?         // the assistant created a new note in the vault
     public var thinking: Bool?               // a reasoning model is thinking (no visible text yet)
     public var ping: Bool?                   // heartbeat: the bridge is alive and waiting
+    public var computerRequest: ComputerRequest?   // the bridge asks the app to look at the screen / do one thing (computer use)
 }
 
 public struct MemoryRecord: Codable, Sendable, Identifiable, Equatable {
@@ -275,6 +276,20 @@ public struct AppSettings: Codable, Sendable, Equatable {
     public var obsidianAllowWrite: Bool?
     public var obsidianContextChars: Int?
     public var obsidianAgentFolder: String?
+    public var computerConsented: Bool?          // optional so an older bridge still decodes
+    public var computerBrowserEnabled: Bool?
+    public var computerDesktopEnabled: Bool?
+    public var computerAutoStart: Bool?
+    public var computerApproval: String?         // risky | every
+    public var computerMaxSteps: Int?
+    public var computerBrowserProfile: String?   // private | mine
+    public var computerScreenshotDim: Int?
+    public var computerMarks: Bool?
+    public var computerPromptChars: Int?
+    public var computerNumCtx: Int?
+    public var computerDesktopBackend: String?   // builtin | cua
+    public var computerCuaCommand: String?
+    public var computerDisplay: String?          // main | cursor | 1-9
 }
 
 /// The sandboxed terminal as the bridge sees it on this Mac.

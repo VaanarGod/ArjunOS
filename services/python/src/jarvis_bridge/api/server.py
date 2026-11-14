@@ -16,6 +16,11 @@ from ..inference.openai_compat import OpenAICompatProvider
 from ..mcp.manager import MCPManager, ConfigError, normalize_name
 from ..mcp.client import MCPError
 from ..chat.orchestrator import ChatServices, run_chat
+from ..computer.agent import ComputerRunner, stream_options
+from ..computer.broker import ComputerBroker
+from ..computer.cua import CuaConnection
+from ..computer.routing import RoutingBroker
+from ..computer.intent import computer_intent
 from ..profile import PROFILE_NAME_KEY, ProfileError, Profile, compile_block, estimate_tokens, MAX_BLOCK_CHARS, LIMITS as PROFILE_LIMITS, CHOICES as PROFILE_CHOICES, ProfileStore
 from ..settings import SettingsStore
 from ..files.extract import extract as extract_file, UnsupportedFile, ExtractionError, MAX_BYTES
@@ -64,10 +69,21 @@ class PageIn(BaseModel):
     links: list[dict] = Field(default_factory=list, max_length=60); scroll: dict = Field(default_factory=dict)
     source: str = "dom"; notes: list[str] = Field(default_factory=list, max_length=10); captured_at: str | None = Field(default=None, max_length=40)
 
+class ComputerOpt(BaseModel):
+    mode: str = Field(pattern="^(browser|desktop|auto)$")      # the user switched computer use on for this message (auto: the assistant picks)
+
+class ComputerResultReq(BaseModel):
+    """What the app answers to a computer_request. Every field is optional and re-validated by computer/protocol.py."""
+    ok: bool = True; error: str | None = Field(default=None, max_length=400); code: str | None = Field(default=None, max_length=30)
+    note: str | None = Field(default=None, max_length=300)
+    takeover: bool | None = None                                 # the person used the mouse or keyboard while the agent was working
+    observation: dict | None = None; state: dict | None = None; element: dict | None = None
+
 class ChatReq(BaseModel):
     endpoint: str; model: str; messages: list[ChatMsg] = Field(min_length=1, max_length=500)
     temperature: float | None = Field(default=None, ge=0, le=2)
     page: PageIn | None = None                    # the browser tab the user is looking at, when they want to ask about it
+    computer: ComputerOpt | None = None
 
 class EndpointReq(BaseModel):
     url: str; hint: str = "user-configured"
@@ -115,6 +131,20 @@ class SettingsReq(BaseModel):
     obsidian_allow_write: bool | None = None
     obsidian_context_chars: int | None = Field(default=None, ge=1500, le=40_000)
     obsidian_agent_folder: str | None = Field(default=None, max_length=40)
+    computer_consented: bool | None = None
+    computer_browser_enabled: bool | None = None
+    computer_desktop_enabled: bool | None = None
+    computer_auto_start: bool | None = None
+    computer_approval: str | None = Field(default=None, pattern="^(risky|every)$")
+    computer_max_steps: int | None = Field(default=None, ge=5, le=120)
+    computer_browser_profile: str | None = Field(default=None, pattern="^(private|mine)$")
+    computer_screenshot_dim: int | None = Field(default=None, ge=640, le=2048)
+    computer_marks: bool | None = None
+    computer_num_ctx: int | None = Field(default=None, ge=2048, le=65_536)
+    computer_prompt_chars: int | None = Field(default=None, ge=2000, le=40_000)
+    computer_desktop_backend: str | None = Field(default=None, pattern="^(builtin|cua)$")
+    computer_cua_command: str | None = Field(default=None, max_length=500)
+    computer_display: str | None = Field(default=None, pattern="^(main|cursor|[1-9])$")
 
 class ObsConnectReq(BaseModel):
     path: str = Field(max_length=1000)
@@ -132,10 +162,13 @@ class CrewInputIn(BaseModel):
     images_b64: list[str] = Field(default_factory=list, max_length=40)       # page renders for scanned PDFs / photos (app-side, PDFKit)
     worker_model: str | None = Field(default=None, max_length=300)           # force a model for this input; None = automatic
     note: str | None = Field(default=None, max_length=300)
+    chars: int = Field(default=0, ge=0, le=50_000_000)                         # preview only: how long the file is (the text itself is not sent)
+    pages: int = Field(default=0, ge=0, le=100_000)
 
 class CrewReq(BaseModel):
     task: str = Field(max_length=20_000); boss: str = Field(max_length=300)
     worker_model: str | None = Field(default=None, max_length=300)
+    worker_models: list[str] = Field(default_factory=list, max_length=8)      # the models switched on: work is spread over ALL of them
     inputs: list[CrewInputIn] = Field(default_factory=list, max_length=12)
     preference: str = Field(default="auto", pattern="^(auto|parallel|boss_and_one|one_at_a_time|boss_sleeps)$")
     max_workers: int = Field(default=4, ge=1, le=6)
@@ -196,7 +229,11 @@ class Services:
         self.shell = ShellRunner(self.sandbox, self.policy, self.audit)
         self.files = FileCreator(self.sandbox.workspace, self.policy)
         self.obsidian = ObsidianService(self.settings, state_dir, self.memory, audit=lambda **kw: self.audit.record(**kw))
-        self.chat = ChatServices(self.memory, self.settings, self.search, self.mcp, self.shell, self.files, obsidian=self.obsidian, profile=self.profile)
+        self.computer_broker = ComputerBroker()                              # the macOS app answers through this one (POST /computer/requests/{id}/result)
+        self.cua = CuaConnection(lambda: self.settings.value.computer_cua_command)       # the optional Cua Driver: only started when the desktop backend is "cua"
+        self.computer_router = RoutingBroker(self.computer_broker, self.cua, self.settings)
+        self.computer = ComputerRunner(self.settings, self.policy, self.audit, self.computer_router, offline=offline)
+        self.chat = ChatServices(self.memory, self.settings, self.search, self.mcp, self.shell, self.files, obsidian=self.obsidian, profile=self.profile, computer=self.computer)
         self.crews: dict = {}                       # crew id -> CrewSession (one running at a time: crews share the machine's memory; the last finished one is kept for follow-up chats)
         self._agent_shells: dict = {}               # (crew id, agent id) -> ShellRunner with that agent's own private workspace
         warm_hardware()                             # read CPU/GPU facts in the background so the first memory reading is not slow
@@ -257,6 +294,11 @@ class Services:
             self._agent_shells[key] = runner
         return runner
 
+    def agent_chat_services(self, crew: str | None, agent: str | None) -> ChatServices:
+        """The chat services a crew worker gets: its own terminal, and NEVER computer control (a document it reads must not be able to drive your Mac)."""
+        chat = dc_replace(self.chat, shell=self.agent_shell(crew, agent)) if (agent and crew and self.chat.shell is not None) else self.chat
+        return dc_replace(chat, computer=None)
+
     def model_runtime(self) -> ProviderRuntime:
         return ProviderRuntime(lambda: [(e.key, self.providers[e.key]) for e in self.scanner.endpoints() if e.usable and e.key in self.providers])
 
@@ -269,7 +311,7 @@ class Services:
         async def agent_chat(ref: str, msgs: list, page: dict | None = None, agent: str | None = None, crew: str | None = None):
             key, _, model = ref.partition("|"); prov = self.provider_for(key)
             def stream(m, messages): return prov.chat_stream(m, messages)
-            chat = dc_replace(self.chat, shell=self.agent_shell(crew, agent)) if (agent and crew and self.chat.shell is not None) else self.chat
+            chat = self.agent_chat_services(crew, agent)
             async for ev in run_chat(stream, model, list(msgs), chat, supports_vision=rows[ref].vision if ref in rows else None, page=page):
                 yield redact(ev)
         return CrewEngine(llm=llm, agent_chat=agent_chat, models=rows, runtime=self.model_runtime(), sysmem=read_system)
@@ -277,6 +319,7 @@ class Services:
     async def close(self):
         for p in self.providers.values(): await p.aclose()
         await self.mcp.close()
+        await self.cua.close()                                               # stops the Cua Driver process if it was ever started
 
 
 def create_app(state_dir: str | Path, token: str, *, offline: bool = False, services: Services | None = None) -> FastAPI:
@@ -367,20 +410,46 @@ def create_app(state_dir: str | Path, token: str, *, offline: bool = False, serv
         if not prov.local: raise HTTPException(409, "remote provider requires explicit per-request approval")
         msgs = [ChatMessage(m.role, m.content, attachments=tuple(a.model_dump() for a in m.attachments)) for m in r.messages]
         supports_vision = None
-        if any(a.image_b64 for m in r.messages for a in m.attachments):
+        last_user = next((m.content for m in reversed(r.messages) if m.role == "user"), "")
+        cu = svc.computer; cfg_ = svc.settings.value
+        wants_cu = bool(r.computer) or bool(cfg_.computer_auto_start and computer_intent(last_user, desktop_ok=cu.available("desktop"), browser_ok=cu.available("browser")))
+        if any(a.image_b64 for m in r.messages for a in m.attachments) or wants_cu:
             try:
                 info = next((x for x in await prov.list_models() if x.id == r.model), None)
                 supports_vision = info.capabilities.vision if info else None
             except ProviderError: supports_vision = None
         opts = {"temperature": r.temperature} if r.temperature is not None else {}
         def stream(model, messages): return prov.chat_stream(model, messages, **opts)
+        def cstream(model, messages, **extra):                                 # computer use: keep the model loaded, answer in JSON, cap the length (fast decisions)
+            o = stream_options(cfg_); o.update(extra)
+            return prov.chat_stream(model, messages, **o)
         async def sse() -> AsyncIterator[str]:
             try:
-                async for ev in run_chat(stream, r.model, msgs, svc.chat, supports_vision=supports_vision, page=r.page.model_dump() if r.page else None):
+                async for ev in run_chat(stream, r.model, msgs, svc.chat, supports_vision=supports_vision, page=r.page.model_dump() if r.page else None,
+                                         computer=r.computer.model_dump() if r.computer else None, computer_stream=cstream):
                     yield "data: " + json.dumps(redact(ev)) + "\n\n"
             except Exception as e:                                            # never leave the client hanging
                 yield "data: " + json.dumps({"error": {"kind": "internal", "message": redact_text(f"{type(e).__name__}: {e}")}}) + "\n\n"
         return StreamingResponse(sse(), media_type="text/event-stream")
+
+    # ---- computer use: the app answers what the bridge asked it to do ----
+    @app.post(v + "/computer/requests/{rid}/result")
+    async def computer_result(rid: str, r: ComputerResultReq):
+        if not re.fullmatch(r"cr_[0-9a-f]{24}", rid) or not svc.computer_broker.resolve(rid, r.model_dump(exclude_none=True)):
+            raise HTTPException(404, "nothing is waiting for that answer")
+        return {"ok": True}
+
+    @app.post(v + "/computer/stop")
+    async def computer_stop():
+        n = svc.computer.stop_all()
+        svc.audit.record(actor="user", agent_id="computer", tool_id="computer:run", decision="stop_requested", detail={"pending": n})
+        return {"stopped": n}
+
+    @app.get(v + "/computer/status")
+    async def computer_status():
+        c = svc.settings.value
+        return {"running": svc.computer.running, "consented": c.computer_consented, "browser": svc.computer.available("browser"), "desktop": svc.computer.available("desktop"),
+                "offline": svc.offline, "last_run": svc.computer.last_stats}
 
     # ---- files ----
     @app.post(v + "/files/extract")
@@ -626,15 +695,16 @@ def create_app(state_dir: str | Path, token: str, *, offline: bool = False, serv
                            for m in eng.models.values() if m.chat]}
 
     def _crew_inputs(r: CrewReq) -> list:
-        return [CrewInput(i.name, i.kind, i.text, list(i.images_b64), i.worker_model, i.note) for i in r.inputs]
+        return [CrewInput(i.name, i.kind, i.text, list(i.images_b64), i.worker_model, i.note, hint_chars=i.chars, hint_pages=i.pages,
+                          hint_images=bool(i.images_b64) and not i.text and i.kind == "pdf") for i in r.inputs]
 
     def _crew_cfg(r: CrewReq) -> CrewConfig:
-        return CrewConfig(boss=r.boss, worker_model=r.worker_model, preference=r.preference, max_workers=r.max_workers, review=r.review,
+        return CrewConfig(boss=r.boss, worker_model=r.worker_model, worker_models=list(dict.fromkeys(r.worker_models)), preference=r.preference, max_workers=r.max_workers, review=r.review,
                           attachment_chars=min(svc.settings.value.attachment_context_chars, 60_000))
 
     async def _crew_checked(r: CrewReq):
         eng = await svc.crew_engine()
-        for ref in [r.boss, r.worker_model, *[i.worker_model for i in r.inputs]]:
+        for ref in [r.boss, r.worker_model, *r.worker_models, *[i.worker_model for i in r.inputs]]:
             if ref and ref not in eng.models: raise HTTPException(422, f"{ref.partition('|')[2] or ref} isn't an installed local model")
         return eng
 
@@ -642,8 +712,12 @@ def create_app(state_dir: str | Path, token: str, *, offline: bool = False, serv
     async def crew_preview(r: CrewReq):
         """What would run and how: the memory mode, which small model each file gets. Loads nothing."""
         eng = await _crew_checked(r); cfg = _crew_cfg(r)
-        plan, rows = await eng.make_plan(cfg, _crew_inputs(r))
+        lay = eng.layout(cfg, _crew_inputs(r))
+        plan, rows = await eng.make_plan(cfg, _crew_inputs(r), lay=lay)
         return {"plan": plan.as_dict(), "system": read_system().as_dict(), "boss": r.boss,
+                "layout": {"parts": [{"name": p.name, "parent": p.parent, "label": p.label, "model": (lay.assign[p.name].ref if lay.assign.get(p.name) else None),
+                                      "chars": len(p.text) or p.hint_chars} for p in lay.inputs],
+                           "split": lay.report, "unused": [m.ref for m in lay.unused]},
                 "workers": [{"ref": w.ref, "id": w.id, "vision": w.vision, "params_b": w.params_b, "size_bytes": w.size_bytes} for w in rows]}
 
     @app.post(v + "/crew/run")

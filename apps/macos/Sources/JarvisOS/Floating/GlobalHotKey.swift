@@ -11,16 +11,23 @@ final class GlobalHotKey {
     var onPress: (@MainActor () -> Void)?
     private var hotKeyRef: EventHotKeyRef?
     private var handlerRef: EventHandlerRef?
+    private let hotKeyID: UInt32
 
-    init() {
+    init(id: UInt32 = 1) {
+        self.hotKeyID = id
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(GetApplicationEventTarget(), { _, _, userData in
-            guard let userData else { return noErr }
+        InstallEventHandler(GetApplicationEventTarget(), { _, event, userData in
+            guard let userData, let event else { return noErr }
             let me = Unmanaged<GlobalHotKey>.fromOpaque(userData).takeUnretainedValue()
+            var pressed = EventHotKeyID()
+            GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &pressed)
+            guard pressed.signature == OSType(0x41524A4E), pressed.id == me.idValue else { return OSStatus(eventNotHandledErr) }     // somebody else's shortcut
             Task { @MainActor in me.onPress?() }
             return noErr
         }, 1, &spec, Unmanaged.passUnretained(self).toOpaque(), &handlerRef)
     }
+
+    nonisolated var idValue: UInt32 { MainActor.assumeIsolated { hotKeyID } }
 
     deinit {
         if let r = hotKeyRef { UnregisterEventHotKey(r) }
@@ -48,7 +55,7 @@ final class GlobalHotKey {
     @discardableResult
     func register(_ combo: HotKeyCombo) -> Result<Void, Failure> {
         unregister()
-        let id = EventHotKeyID(signature: OSType(0x41524A4E), id: 1)      // 'ARJN'
+        let id = EventHotKeyID(signature: OSType(0x41524A4E), id: hotKeyID)      // 'ARJN'
         var ref: EventHotKeyRef?
         let status = RegisterEventHotKey(UInt32(combo.keyCode), Self.carbonModifiers(combo.modifiers), id, GetApplicationEventTarget(), 0, &ref)
         guard status == noErr, let ref else { return .failure(status == OSStatus(eventHotKeyExistsErr) ? .taken : .other(status)) }

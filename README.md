@@ -230,3 +230,17 @@ Not built yet: voice (speech-to-text and text-to-speech), scheduled jobs, plugin
 ## License
 
 [Apache-2.0](LICENSE). See [`NOTICE`](NOTICE) for third-party terms, including Piper's GPL.
+
+
+## Computer use
+
+A local model can operate the built-in browser and, if you switch it on, other Mac apps: it plans several steps at once, the app performs and verifies them, and it only asks the model again when something unexpected happens. Off by default; asks before anything consequential. See [docs/computer-use.md](docs/computer-use.md).
+
+Manual checklist (needs a Mac; the Swift side has not been compiled or run by the author):
+
+1. `swift build` and `swift test`; fix any compile errors in `Sources/JarvisOS/Computer/`.
+2. Settings, Computer use: turn on, enable the desktop, grant Accessibility (and optionally Screen Recording). Rebuilding the ad-hoc signed app may reset the grant.
+3. Composer, Computer, "Operate my Mac": "Open Finder, locate my Xcode projects, and show me the results". Expect an approval to control Finder, then the steps, then a summary.
+4. Press Control-Option-Escape mid-task: the task must stop and the orange frame disappear.
+5. Browser mode: "go to example.com and tell me the heading". Expect the private browser in the pane.
+6. Try to make it open Terminal, type into a password field, or click Place order: each must be refused or ask.

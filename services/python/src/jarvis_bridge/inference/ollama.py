@@ -100,6 +100,9 @@ class OllamaProvider:
         options = {k: v for k, v in opts.items() if k in ("temperature", "top_p", "num_ctx", "num_predict", "seed")}
         if options:
             body["options"] = options
+        if isinstance(opts.get("keep_alive"), (str, int)): body["keep_alive"] = opts["keep_alive"]      # e.g. "30m": the model stays in memory between steps
+        if isinstance(opts.get("think"), bool): body["think"] = opts["think"]                              # False: skip hidden reasoning (a thinking model otherwise spends the whole token cap on it)
+        if opts.get("format") == "json" or isinstance(opts.get("format"), dict): body["format"] = opts["format"]      # "json", or a JSON schema the decoder is forced to follow                                         # constrained JSON: fewer wasted tokens, fewer parse failures
         try:
             async with self._c.stream("POST", "/api/chat", json=body) as r:
                 if r.status_code >= 400:

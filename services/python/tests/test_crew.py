@@ -302,7 +302,7 @@ async def test_big_documents_are_read_in_sections_with_an_overview():
     m = Machine(32, 28)
     big = CrewInput("big.pdf", "pdf", text="\n\n".join(f"Section {i}. " + "detail " * 200 for i in range(12)))
     t = Team(m, {"subtasks": [{"title": "Big", "instructions": "x", "inputs": ["big.pdf"]}]}, workers={"w1": lambda msgs: "Notes. " * 40})
-    ev = await run_crew(engine(m, t), "t", [big], CrewConfig(BOSS, attachment_chars=4000))
+    ev = await run_crew(engine(m, t), "t", [big], CrewConfig(BOSS, attachment_chars=4000, max_parts_per_file=1))   # one worker reads it all, in sections
     report = of(ev, "result")[0]["summary"]
     assert report.startswith("## Overview") and "## Detailed notes" in report and "### big.pdf, section 1" in report
     calls = [c for c in t.worker_calls]; assert len(calls) > 3
@@ -312,7 +312,7 @@ async def test_scanned_pdf_pages_go_to_a_vision_model_three_at_a_time():
     m = Machine(32, 28)
     scan = CrewInput("scan.pdf", "pdf", text="", images_b64=[f"img{i}" for i in range(7)])
     t = Team(m, {"subtasks": [{"title": "Scan", "instructions": "x", "inputs": ["scan.pdf"]}]}, workers={"w1": lambda msgs: "Page notes. " * 30})
-    ev = await run_crew(engine(m, t), "t", [scan], CrewConfig(BOSS))
+    ev = await run_crew(engine(m, t), "t", [scan], CrewConfig(BOSS, max_parts_per_file=1))   # splitting across workers is tested in test_crew_split.py
     assert {c[1] for c in t.worker_calls} == {VIS}
     page_calls = [c for c in t.worker_calls if c[2][1].attachments]
     assert [len(c[2][1].attachments) for c in page_calls] == [3, 3, 1] and all(a["kind"] == "image" for a in page_calls[0][2][1].attachments)

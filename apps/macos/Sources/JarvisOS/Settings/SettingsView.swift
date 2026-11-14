@@ -5,7 +5,7 @@ import JarvisCore
 /// Every settings page. Each feature has its own page; the list on the left jumps between them.
 enum SettingsSection: String, CaseIterable, Identifiable {
     case profile, general, floating
-    case webSearch, browser, files, terminal
+    case webSearch, browser, computer, files, terminal
     case memory, obsidian
     case privacy, diagnostics
 
@@ -14,7 +14,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .profile: "Profile"; case .general: "General"; case .floating: "Floating assistant"
-        case .webSearch: "Web search"; case .browser: "Browser"; case .files: "Files"; case .terminal: "Terminal"
+        case .webSearch: "Web search"; case .browser: "Browser"; case .computer: "Computer use"; case .files: "Files"; case .terminal: "Terminal"
         case .memory: "Memory"; case .obsidian: "Obsidian"
         case .privacy: "Privacy"; case .diagnostics: "Diagnostics"
         }
@@ -26,6 +26,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .floating: "The pet and the mini chat that float above your other windows."
         case .webSearch: "When ArjunOS may look things up online, and how much."
         case .browser: "Let your local model read the page you have open."
+        case .computer: "Let your local model operate the browser and your Mac, one checked step at a time."
         case .files: "Create files, and let the model read any file or folder you attach or name."
         case .terminal: "Run a few safe commands, only after you approve each one."
         case .memory: "Notes ArjunOS keeps about you and uses in answers."
@@ -37,7 +38,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .profile: "person.crop.circle.fill"; case .general: "slider.horizontal.3"; case .floating: "pawprint.fill"
-        case .webSearch: "magnifyingglass"; case .browser: "globe"; case .files: "doc.fill"; case .terminal: "terminal.fill"
+        case .webSearch: "magnifyingglass"; case .browser: "globe"; case .computer: "cursorarrow.rays"; case .files: "doc.fill"; case .terminal: "terminal.fill"
         case .memory: "brain"; case .obsidian: "books.vertical.fill"
         case .privacy: "lock.fill"; case .diagnostics: "stethoscope"
         }
@@ -45,7 +46,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     var tint: Color {
         switch self {
         case .profile: .teal; case .general: .gray; case .floating: .pink
-        case .webSearch: .blue; case .browser: .cyan; case .files: .orange; case .terminal: .green
+        case .webSearch: .blue; case .browser: .cyan; case .computer: .orange; case .files: .orange; case .terminal: .green
         case .memory: .purple; case .obsidian: .indigo
         case .privacy: .mint; case .diagnostics: .red
         }
@@ -54,7 +55,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     /// The headings in the list on the left.
     static let groups: [(title: String, items: [SettingsSection])] = [
         ("Assistant", [.profile, .general, .floating]),
-        ("Abilities", [.webSearch, .browser, .files, .terminal]),
+        ("Abilities", [.webSearch, .browser, .computer, .files, .terminal]),
         ("Knowledge", [.memory, .obsidian]),
         ("App", [.privacy, .diagnostics]),
     ]
@@ -88,6 +89,7 @@ struct SettingsView: View {
         case .floating: FloatingSettingsPage()
         case .webSearch: WebSearchSettingsPage()
         case .browser: BrowserSettingsPage()
+        case .computer: ComputerSettingsPage()
         case .files: FilesSettingsPage()
         case .terminal: TerminalSettingsPage()
         case .memory: MemorySettingsPage()

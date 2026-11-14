@@ -32,7 +32,7 @@ struct CrewView: View {
         }
         .onAppear { crew.attach(model); crew.schedulePreview() }
         .onChange(of: crew.bossRef) { _, _ in crew.schedulePreview() }
-        .onChange(of: crew.workerRef) { _, _ in crew.schedulePreview() }
+        .onChange(of: crew.workerRefs) { _, _ in crew.schedulePreview() }
         .onChange(of: crew.preference) { _, _ in crew.schedulePreview() }
     }
 }
@@ -89,12 +89,12 @@ private struct CrewSetup: View {
                     LabeledMenu(title: "Boss", systemImage: "crown") {
                         CrewModelMenu(selection: $crew.bossRef, autoLabel: nil)
                     }
-                    LabeledMenu(title: "Workers", systemImage: "person.3") {
-                        CrewModelMenu(selection: $crew.workerRef, autoLabel: "Automatic: smallest capable model")
-                    }
-                    Text(crew.workerRef == nil ? "Workers use the smallest installed model that can do the job (a vision model for scanned pages). You can also pick a model for a single file above."
-                                               : "Every worker uses this model unless you pick a different one for a file.")
+                    LabeledMenu(title: "Workers", systemImage: "person.3") { CrewWorkerPicker() }
+                    Text(crew.workerRefs.isEmpty ? "Workers use the smallest installed model that can do the job (a vision model for scanned pages). Long files are still split between workers. You can also pick a model for a single file above."
+                         : crew.workerRefs.count == 1 ? "Every worker uses this model unless you pick a different one for a file."
+                         : "All \(crew.workerRefs.count) models are put to work. Long files are cut into parts so each one gets a share; faster, smaller models read more.")
                         .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    CrewLayoutCard(layout: crew.isRunning ? nil : crew.preview?.layout)
                 }
 
                 section("Memory") {
@@ -211,6 +211,104 @@ private struct FileRow: View {
     }
 }
 
+// MARK: - Workers: switch on any number of models
+
+/// Pick which models may work. Every model that is switched on gets real work: long files are cut into parts and spread over all of them.
+struct CrewWorkerPicker: View {
+    @Environment(AppModel.self) private var model
+    @State private var open = false
+    static let limit = 8
+
+    private func ref(_ m: ModelEntry) -> String { "\(m.endpoint)|\(m.modelID ?? "")" }
+
+    var body: some View {
+        let crew = model.crew
+        Button { open.toggle() } label: {
+            HStack(spacing: 4) {
+                Text(summary(crew)).lineLimit(1).truncationMode(.middle)
+                Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(.secondary)
+            }.frame(maxWidth: 170, alignment: .trailing)
+        }
+        .buttonStyle(.plain).disabled(crew.isRunning)
+        .popover(isPresented: $open, arrowEdge: .trailing) { chooser(crew) }
+    }
+
+    private func summary(_ crew: CrewModel) -> String {
+        switch crew.workerRefs.count {
+        case 0: return "Automatic"
+        case 1: return AppModel.shortModelName(crewModelName(crew.workerRefs[0]))
+        default: return "\(crew.workerRefs.count) models"
+        }
+    }
+
+    private func chooser(_ crew: CrewModel) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Workers").font(.headline)
+            Text("Switch on the models that may work. A long file is split so every model you switch on gets a share of it.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Toggle("Automatic: the smallest capable model", isOn: Binding(get: { crew.workerRefs.isEmpty }, set: { if $0 { crew.workerRefs = [] } }))
+            Divider()
+            if model.chatModels.isEmpty { Text("No models detected").foregroundStyle(.secondary) }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(model.chatModels) { m in
+                        let r = ref(m)
+                        let on = crew.workerRefs.contains(r)
+                        Toggle(isOn: Binding(get: { on }, set: { v in
+                            if v, !on, crew.workerRefs.count < Self.limit { crew.workerRefs.append(r) }
+                            if !v { crew.workerRefs.removeAll { $0 == r } }
+                        })) {
+                            HStack(spacing: 6) {
+                                Text(AppModel.shortModelName(m.modelID ?? "")).lineLimit(1)
+                                if m.capabilities?.vision == true { Image(systemName: "eye").font(.caption2).foregroundStyle(Theme.accent).help("Can read page images") }
+                                Spacer(minLength: 8)
+                                if let b = m.sizeBytes { Text(crewBytes(b)).font(.caption2).foregroundStyle(.secondary).monospacedDigit() }
+                            }
+                        }
+                        .disabled(!on && crew.workerRefs.count >= Self.limit)
+                    }
+                }
+            }
+            .frame(maxHeight: 260)
+            HStack {
+                Text(crew.workerRefs.isEmpty ? "Automatic" : "\(crew.workerRefs.count) of \(Self.limit) switched on").font(.caption2).foregroundStyle(.secondary)
+                Spacer()
+                Button("Clear") { crew.workerRefs = [] }.disabled(crew.workerRefs.isEmpty)
+            }
+            Text("Models you switch on are loaded as memory allows; the Memory setting below decides how many run at once.").font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14).frame(width: 340)
+    }
+}
+
+/// The split the crew will use (or is using): which files are long, how many parts, and which model reads each part.
+private struct CrewLayoutCard: View {
+    let layout: CrewPreview.Layout?
+    var body: some View {
+        if let l = layout, !(l.split.isEmpty && l.unused.isEmpty) {
+            VStack(alignment: .leading, spacing: 6) {
+                Label("How the work is split", systemImage: "square.split.2x2").font(.caption.weight(.semibold))
+                ForEach(l.split, id: \.name) { s in
+                    Text("\(s.name): \(s.pages.map { "\($0) pages, " } ?? "")\(s.chars.formatted()) characters → \(s.parts.count) parts").font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                ForEach(Array(l.parts.filter { $0.parent != nil }.prefix(14).enumerated()), id: \.offset) { _, p in
+                    HStack(spacing: 6) {
+                        Text("\(p.parent ?? "") · \(p.label)").lineLimit(1).truncationMode(.middle)
+                        Spacer(minLength: 6)
+                        Text(p.model.map { AppModel.shortModelName(crewModelName($0)) } ?? "no model").foregroundStyle(p.model == nil ? Color.orange : Color.secondary)
+                    }.font(.caption2)
+                }
+                if !l.unused.isEmpty {
+                    Label("\(l.unused.map { AppModel.shortModelName(crewModelName($0)) }.joined(separator: ", ")) would have nothing to read: there are not enough parts for every model. Add a file or switch fewer models on.",
+                          systemImage: "exclamationmark.circle").font(.caption2).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.white.opacity(0.05), in: RoundRectangle(10))
+        }
+    }
+}
+
 // MARK: - Memory
 
 private struct CrewPlanCard: View {
@@ -312,7 +410,7 @@ struct MemoryMeter: View {
     private func role(_ ref: String) -> (label: String, color: Color) {
         let crew = model.crew
         if crew.boss?.model == ref || crew.bossRef == ref { return ("boss", Theme.accent) }
-        if crew.workers.contains(where: { $0.model == ref }) || crew.workerRef == ref { return ("worker", .green) }
+        if crew.workers.contains(where: { $0.model == ref }) || crew.workerRefs.contains(ref) { return ("worker", .green) }
         return ("other", .secondary)
     }
 }

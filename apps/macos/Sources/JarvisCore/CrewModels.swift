@@ -73,9 +73,16 @@ public struct SystemResources: Codable, Sendable, Equatable {
 
 public struct CrewPreview: Codable, Sendable, Equatable {
     public struct Worker: Codable, Sendable, Equatable { public var ref: String; public var id: String; public var vision: Bool?; public var paramsB: Double?; public var sizeBytes: Int? }
+    /// How the files are cut into parts and which model reads which part (the same layout the real run uses).
+    public struct Layout: Codable, Sendable, Equatable {
+        public struct Part: Codable, Sendable, Equatable { public var name: String; public var parent: String?; public var label: String; public var model: String?; public var chars: Int }
+        public struct Split: Codable, Sendable, Equatable { public var name: String; public var pages: Int?; public var chars: Int; public var parts: [String] }
+        public var parts: [Part]; public var split: [Split]; public var unused: [String]
+    }
     public var plan: CrewPlanInfo
     public var boss: String
     public var workers: [Worker]
+    public var layout: Layout?
 }
 
 // MARK: - Request
@@ -88,24 +95,27 @@ public struct CrewRequest: Encodable, Sendable {
         public var imagesB64: [String]
         public var workerModel: String?
         public var note: String?
-        public init(name: String, kind: String, text: String, imagesB64: [String] = [], workerModel: String? = nil, note: String? = nil) {
-            self.name = name; self.kind = kind; self.text = text; self.imagesB64 = imagesB64; self.workerModel = workerModel; self.note = note
+        public var chars: Int?              // preview only: how long the file is (the text itself is not sent)
+        public var pages: Int?
+        public init(name: String, kind: String, text: String, imagesB64: [String] = [], workerModel: String? = nil, note: String? = nil, chars: Int? = nil, pages: Int? = nil) {
+            self.name = name; self.kind = kind; self.text = text; self.imagesB64 = imagesB64; self.workerModel = workerModel; self.note = note; self.chars = chars; self.pages = pages
         }
-        enum CodingKeys: String, CodingKey { case name, kind, text, imagesB64 = "images_b64", workerModel = "worker_model", note }
+        enum CodingKeys: String, CodingKey { case name, kind, text, imagesB64 = "images_b64", workerModel = "worker_model", note, chars, pages }
     }
     public var task: String
     public var boss: String
     public var workerModel: String?
+    public var workerModels: [String]          // the models switched on: the work is spread over ALL of them (empty = automatic)
     public var inputs: [Input]
     public var preference: String              // auto | parallel | boss_and_one | one_at_a_time | boss_sleeps
     public var maxWorkers: Int
     public var uiBrowser: Bool
     public var review: Bool
-    public init(task: String, boss: String, workerModel: String? = nil, inputs: [Input] = [], preference: String = "auto", maxWorkers: Int = 4, uiBrowser: Bool = true, review: Bool = true) {
-        self.task = task; self.boss = boss; self.workerModel = workerModel; self.inputs = inputs
+    public init(task: String, boss: String, workerModel: String? = nil, workerModels: [String] = [], inputs: [Input] = [], preference: String = "auto", maxWorkers: Int = 4, uiBrowser: Bool = true, review: Bool = true) {
+        self.task = task; self.boss = boss; self.workerModel = workerModel; self.workerModels = workerModels; self.inputs = inputs
         self.preference = preference; self.maxWorkers = maxWorkers; self.uiBrowser = uiBrowser; self.review = review
     }
-    enum CodingKeys: String, CodingKey { case task, boss, workerModel = "worker_model", inputs, preference, maxWorkers = "max_workers", uiBrowser = "ui_browser", review }
+    enum CodingKeys: String, CodingKey { case task, boss, workerModel = "worker_model", workerModels = "worker_models", inputs, preference, maxWorkers = "max_workers", uiBrowser = "ui_browser", review }
 }
 
 // MARK: - Streamed events

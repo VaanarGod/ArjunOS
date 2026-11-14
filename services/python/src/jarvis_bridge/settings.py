@@ -26,6 +26,20 @@ class BridgeSettings:
     obsidian_allow_write: bool = True       # the model may create NEW notes in its own folder (it never edits your notes)
     obsidian_context_chars: int = 6000      # most note text given to the model per answer
     obsidian_agent_folder: str = "ArjunOS"  # the only folder the assistant writes to
+    computer_consented: bool = False        # one-time permission: a local model may operate the built-in browser / (if switched on) the Mac desktop
+    computer_browser_enabled: bool = True   # may drive the built-in browser (only after consent)
+    computer_desktop_enabled: bool = False  # may click and type anywhere on the Mac (off by default; needs macOS permissions)
+    computer_auto_start: bool = True        # a clear request such as "open Finder and find my Xcode projects" starts a task (after you approve it)
+    computer_approval: str = "risky"        # risky = ask before consequential steps | every = ask before every step
+    computer_max_steps: int = 40            # most actions in one task
+    computer_browser_profile: str = "private"   # private = a throwaway browser with none of your logins | mine = your normal browser data
+    computer_screenshot_dim: int = 1280     # longest side of a screenshot given to a vision model
+    computer_marks: bool = True             # draw numbered boxes on the screenshot that match the [n] control list (helps small vision models)
+    computer_num_ctx: int = 8192            # context window asked of the local model for computer tasks (too small and the model silently drops the START of the prompt, where the instructions are)
+    computer_prompt_chars: int = 9000       # most characters of control list + page text given to the model per look (smaller = faster on a local model)
+    computer_desktop_backend: str = "builtin"   # builtin = the app's own Accessibility/CGEvent driver | cua = the optional Cua Driver (background input)
+    computer_cua_command: str = "cua-driver"    # the Cua Driver executable (a name on PATH or a full path); only used when the backend is cua
+    computer_display: str = "main"          # which screen the agent looks at and clicks on: main | cursor (the one the pointer is on) | 1-9
 
     def validate(self) -> "BridgeSettings":
         if self.web_search_mode not in WEB_MODES:
@@ -59,6 +73,25 @@ class BridgeSettings:
         if not f or len(f) > 40 or f.startswith(".") or any(c in f for c in '/\\:*?"<>|\x00') or f in ("..", "."):
             raise ValueError("obsidian_agent_folder must be a simple folder name")
         self.obsidian_agent_folder = f
+        self.computer_consented = bool(self.computer_consented); self.computer_browser_enabled = bool(self.computer_browser_enabled)
+        self.computer_desktop_enabled = bool(self.computer_desktop_enabled); self.computer_auto_start = bool(self.computer_auto_start)
+        if self.computer_approval not in ("risky", "every"): raise ValueError("computer_approval must be 'risky' or 'every'")
+        if self.computer_browser_profile not in ("private", "mine"): raise ValueError("computer_browser_profile must be 'private' or 'mine'")
+        if not (5 <= int(self.computer_max_steps) <= 120): raise ValueError("computer_max_steps must be between 5 and 120")
+        if not (640 <= int(self.computer_screenshot_dim) <= 2048): raise ValueError("computer_screenshot_dim must be between 640 and 2048")
+        self.computer_max_steps = int(self.computer_max_steps); self.computer_screenshot_dim = int(self.computer_screenshot_dim)
+        self.computer_marks = bool(self.computer_marks)
+        if not (2048 <= int(self.computer_num_ctx) <= 65_536): raise ValueError("computer_num_ctx must be between 2048 and 65536")
+        self.computer_num_ctx = int(self.computer_num_ctx)
+        if not (2000 <= int(self.computer_prompt_chars) <= 40_000): raise ValueError("computer_prompt_chars must be between 2000 and 40000")
+        self.computer_prompt_chars = int(self.computer_prompt_chars)
+        if self.computer_desktop_backend not in ("builtin", "cua"): raise ValueError("computer_desktop_backend must be 'builtin' or 'cua'")
+        c = str(self.computer_cua_command or "").strip()
+        if not c or len(c) > 500 or any(ch in c for ch in "\x00\n\r;|&$`<>") : raise ValueError("computer_cua_command must be the name or path of an executable")
+        self.computer_cua_command = c
+        d = str(self.computer_display or "").strip().lower()
+        if d not in ("main", "cursor") and not (len(d) == 1 and d in "123456789"): raise ValueError("computer_display must be main, cursor or a number 1-9")
+        self.computer_display = d
         return self
 
     @property

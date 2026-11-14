@@ -15,6 +15,7 @@ from ..inference.base import ChatChunk, ChatMessage, ProviderError, ErrorKind
 from .pathfiles import read_mentioned
 from .attachments import build_attachment_context
 from .fileintent import extract_content, file_intent, suggested_name
+from ..computer.intent import computer_intent
 from .pagecontext import build_page_block, page_rules, page_search_query, wants_external_check
 from ..memory.store import MemoryStore, _STOP
 from ..security.redact import redact_text
@@ -30,10 +31,11 @@ MAX_FILE_BUFFER = 210_000
 IDLE_FIRST = 300.0      # seconds to wait for the FIRST sign of life (a big model may need to load)
 IDLE_NEXT = 120.0       # seconds of total silence mid-answer before we give up
 HEARTBEAT = 5.0         # how often a quiet stream tells the app it is still alive
-OPENERS = ("<search>", "<recall>", "<shell>", "<file ", "<tool name=", "<vault>", "<note>", "<vaultnote ")
+OPENERS = ("<search>", "<recall>", "<shell>", "<file ", "<tool name=", "<vault>", "<note>", "<vaultnote ", "<computer ")
 CLOSERS = {"<search>": "</search>", "<recall>": "</recall>", "<shell>": "</shell>", "<file ": "</file>", "<tool name=": "</tool>",
-           "<vault>": "</vault>", "<note>": "</note>", "<vaultnote ": "</vaultnote>"}
+           "<vault>": "</vault>", "<note>": "</note>", "<vaultnote ": "</vaultnote>", "<computer ": "</computer>"}
 _VNOTE_OPEN = re.compile(r"""<vaultnote\s+(?:name|title)\s*=\s*["']([^"'<>]{1,120})["'](?:\s+tags\s*=\s*["']([^"'<>]{0,200})["'])?\s*>\n?""", re.I)
+_COMPUTER_TAG = re.compile(r"""<computer\s+mode\s*=\s*["'](browser|desktop)["']\s*>(.*?)</computer>""", re.I | re.S)
 _FILE_OPEN = re.compile(r"""<file\s+(?:name|path|filename)\s*=\s*["']([^"'<>]{1,120})["']\s*>\n?""", re.I)
 
 Stream = Callable[[str, list], AsyncIterator[ChatChunk]]
@@ -60,6 +62,7 @@ class ChatServices:
     files: FileCreator | None = None
     obsidian: object | None = None           # ObsidianService: the user's vault as knowledge base and memory storage
     profile: ProfileStore | None = None      # who the user is + their standing instructions (first thing in the system message)
+    computer: object | None = None           # ComputerRunner: plan -> execute -> verify on the built-in browser or the desktop
 
 
 # ------------------------------------------------------------------ remember
@@ -121,8 +124,9 @@ async def extract_memory(stream: Stream, model: str, prompt: str) -> str:
 
 # ------------------------------------------------------------------ prompt assembly
 def tool_instructions(search_on: bool, recall_on: bool, mcp_desc: str | None, shell_desc: str | None = None, files_on: bool = False,
-                      vault_on: bool = False, vault_write: bool = False) -> str | None:
+                      vault_on: bool = False, vault_write: bool = False, computer_desc: str | None = None) -> str | None:
     lines = []
+    if computer_desc: lines.append(computer_desc)
     if files_on: lines.append('<file name="notes.md">the COMPLETE file content</file> — create a file for the user whenever they ask you to create, write, make or save a file '
                               '(md, txt, js, json, html, css, csv, py ...). Put the whole content between the tags: no code fences, no commentary inside, nothing after the closing tag.')
     if search_on: lines.append("<search>query</search> — look something up on the web (current events, recent facts, things you cannot know).")
@@ -161,7 +165,8 @@ class _Round:
 
 
 async def run_chat(stream: Stream, model: str, messages: list, svc: ChatServices, *, project: str | None = None,
-                   supports_vision: bool | None = None, page: dict | None = None) -> AsyncIterator[Event]:
+                   supports_vision: bool | None = None, page: dict | None = None, computer: dict | None = None,
+                   computer_stream: Stream | None = None) -> AsyncIterator[Event]:
     cfg = svc.settings.value
     last_user = next((m.content for m in reversed(messages) if m.role == "user"), "")
     work = list(messages)
@@ -184,6 +189,29 @@ async def run_chat(stream: Stream, model: str, messages: list, svc: ChatServices
                                  provenance={"via": "remember", "request": last_user[:300]})
             yield {"memory_saved": {"id": mem.id, "content": mem.content, "category": mem.category}}
             notes.append(f'The user asked you to remember something and it has been saved as: "{mem.content}". Confirm briefly in one sentence.')
+
+    # ---- 1b. computer use: the user switched it on for this message, or the request clearly is a task on the computer ----
+    comp = svc.computer
+    cmode, ask_start = None, False
+    if comp is not None and not remembering and last_user.strip():
+        if computer and computer.get("mode") in ("browser", "desktop", "auto"):
+            cmode = computer["mode"]
+            if cmode == "auto":                                                 # the words decide; otherwise prefer the whole Mac, which can leave ArjunOS
+                cmode = computer_intent(last_user, desktop_ok=comp.available("desktop"), browser_ok=comp.available("browser")) or ("desktop" if comp.available("desktop") else "browser")
+        elif cfg.computer_auto_start:
+            cmode = computer_intent(last_user, desktop_ok=comp.available("desktop"), browser_ok=comp.available("browser"))
+            ask_start = cmode is not None                                       # inferred from words: confirm before touching anything
+    if cmode:
+        tool_id += 1
+        q = asyncio.Queue()
+        out = None
+        async for ev in _pump(asyncio.create_task(comp.run(last_user, cmode, q.put_nowait, tool_id, stream=computer_stream or stream, model=model,
+                                                           vision=supports_vision, ask_start=ask_start)), q, "Computer task failed"):
+            if "_text" in ev: out = ev["_text"]
+            else: yield ev
+        yield {"delta": getattr(out, "text", None) or str(out or "The computer task did not finish.")}
+        yield {"done": True, "prompt_tokens": None, "completion_tokens": None}
+        return
 
     # ---- 2. relevant saved memories (gated by real keyword relevance) ----
     profile_block = svc.profile.block() if svc.profile else ""
@@ -287,7 +315,8 @@ async def run_chat(stream: Stream, model: str, messages: list, svc: ChatServices
                      f'(you may pick a better name but keep the .{intent.ext} type). No code fences, and no text before or after the tag.')
 
     vault_write = vault_on and cfg.obsidian_allow_write and not tools_locked        # untrusted web text must not be able to make the assistant write notes
-    instr = tool_instructions(cfg.web_search_active, recall_on, svc.mcp.describe() if (svc.mcp and not tools_locked) else None, shell_desc, files_on, vault_on, vault_write)
+    computer_desc = comp.describe() if (comp is not None and not tools_locked) else None
+    instr = tool_instructions(cfg.web_search_active, recall_on, svc.mcp.describe() if (svc.mcp and not tools_locked) else None, shell_desc, files_on, vault_on, vault_write, computer_desc)
     # Order matters for speed: the profile and tool list are identical from turn to turn, so they go FIRST and engines that reuse the
     # already-processed start of the prompt skip them. Everything that changes per message (memories, page, files) comes after.
     system_extra = "\n\n".join(x for x in [profile_block, instr, *notes] if x) or None
@@ -386,6 +415,18 @@ async def run_chat(stream: Stream, model: str, messages: list, svc: ChatServices
                     else: yield ev
                 made_file = True
                 break                                                           # the file is made and confirmed: no second model round to stall on
+        elif kind == "computer":
+            cm, goal_text = arg
+            if tools_locked: out = "Computer control is disabled while a web page is in context. Tell the user and offer to continue without it."
+            elif comp is None: out = "Computer control is not available."
+            else:
+                q = asyncio.Queue(); res = None
+                async for ev in _pump(asyncio.create_task(comp.run(goal_text.strip() or last_user, cm, q.put_nowait, tool_id, stream=computer_stream or stream, model=model,
+                                                                   vision=supports_vision, ask_start=True)), q, "Computer task failed"):
+                    if "_text" in ev: res = ev["_text"]
+                    else: yield ev
+                yield {"delta": getattr(res, "text", None) or str(res or "The computer task did not finish.")}
+                break                                                           # the agent's own summary is the answer: no second model round to stall on
         elif kind == "shell":
             if tools_locked: out = "The terminal is disabled while a web page is in context. Tell the user and offer to continue without it."
             elif not (svc.shell and cfg.shell_enabled): out = "The terminal is turned off in Settings."
@@ -550,6 +591,9 @@ async def _generate(stream: Stream, model: str, msgs: list, allow_tools: bool, r
                             except json.JSONDecodeError: args = {}
                             rnd.tool = ("tool", {"name": m.group(1), "args": args if isinstance(args, dict) else {}})
                             return
+                    elif opener == "<computer ":
+                        cm = _COMPUTER_TAG.match(body)
+                        if cm and cm.group(2).strip(): rnd.tool = ("computer", (cm.group(1).lower(), cm.group(2).strip()[:2000])); return
                     elif opener == "<vaultnote ":
                         vm = _VNOTE_OPEN.match(body)
                         if vm:

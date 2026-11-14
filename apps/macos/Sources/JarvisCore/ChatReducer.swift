@@ -85,6 +85,20 @@ public enum ChatReducer {
             default: return MessageActivity(id: id, kind: "file", title: "Created file", detail: name, status: "done", output: t.output, path: path)
             }
         }
+        if t.name == "computer" {
+            func str(_ k: String) -> String { if case .string(let v)? = t.args?[k] { return v } else { return "" } }
+            func int(_ k: String) -> Int { if case .number(let v)? = t.args?[k] { return Int(v) } else { return 0 } }
+            var planned = 0
+            if case .array(let a)? = t.args?["plan"] { planned = a.count }
+            let progress = planned > 0 ? " · step \(min(int("plan_done") + (t.status == "running" ? 1 : 0), planned)) of \(planned)" : ""
+            let what = str("action"), mode = str("mode") == "desktop" ? "your Mac" : "the browser"
+            switch t.status {
+            case "running": return MessageActivity(id: id, kind: "computer", title: "Using \(mode)", detail: (what.isEmpty ? str("goal") : what) + progress, status: "running", output: t.output)
+            case "waiting_approval": return MessageActivity(id: id, kind: "computer", title: "Waiting for your approval", detail: what, status: "waiting_approval", output: t.output)
+            case "error": return MessageActivity(id: id, kind: "computer", title: "Computer task stopped", detail: t.error ?? str("goal"), status: "error", output: t.output)
+            default: return MessageActivity(id: id, kind: "computer", title: "Used \(mode)", detail: str("goal"), status: "done", output: t.output)
+            }
+        }
         if t.name == "shell" {
             let command: String
             if case .string(let c)? = t.args?["command"] { command = c } else { command = "" }

@@ -11,13 +11,14 @@
 Everything the engine does is emitted as small JSON events (see CrewEngine.run) that the app renders as one panel per agent.
 """
 from __future__ import annotations
-import asyncio, json, re, uuid
+import asyncio, dataclasses, json, re, uuid
 from dataclasses import dataclass, field
 from typing import AsyncIterator, Awaitable, Callable
 from ..inference.base import ChatMessage, ProviderError
 from ..memory.store import _STOP
 from ..security.redact import redact_text
 from ..security.untrusted import wrap_untrusted
+from .split import Job, distribute, split_inputs
 from .governor import Governor, InsufficientMemory, ModelRuntime
 from .resources import (ModelRow, Plan, SystemMemory, footprint, pick_worker, plan_schedule, rank_workers)
 
@@ -169,15 +170,25 @@ class CrewInput:
     images_b64: list = field(default_factory=list)      # page renders / photos, for vision models
     worker_model: str | None = None          # "endpoint|model" to force a model for this input; None = automatic
     note: str | None = None
+    parent: str | None = None                # set on the parts of a long file that was split: the original file's name
+    part_index: int = 0
+    part_total: int = 1
+    label: str = ""                          # "pages 11-20"
+    hint_chars: int = 0                      # size hints for the live preview, where the text itself is not sent
+    hint_pages: int = 0
+    hint_images: bool = False
 
     @property
-    def needs_vision(self) -> bool: return bool(self.images_b64)
+    def needs_vision(self) -> bool: return bool(self.images_b64) or (self.hint_images and not self.text)
 
 
 @dataclass
 class CrewConfig:
     boss: str                                # "endpoint|model"
     worker_model: str | None = None          # None = pick the smallest capable model automatically
+    worker_models: list = field(default_factory=list)   # the models the user switched on: work is spread over ALL of them (empty = automatic)
+    split_chars: int = 0                     # about how much text one worker reads in one part (0 = derived from attachment_chars)
+    max_parts_per_file: int = 8
     preference: str = "auto"                 # auto | parallel | boss_and_one | one_at_a_time | boss_sleeps
     max_workers: int = 4
     max_subtasks: int = 12
@@ -308,6 +319,23 @@ DETAIL_RULES = "Be exhaustive: this report will be the boss's only knowledge of 
 
 
 # ------------------------------------------------------------------ the engine
+@dataclass
+class Layout:
+    """How the files are cut up and which model reads which piece. The preview and the real run both use it, so they never disagree."""
+    inputs: list                      # the files, with every long one replaced by its parts
+    report: list                      # which files were split: [{"name", "pages", "chars", "parts": [labels]}]
+    assign: dict                      # input name -> ModelRow | None
+    pool: list                        # the models the user switched on
+    unused: list                      # switched-on models that have nothing to read
+
+    @property
+    def rows(self) -> list:
+        seen = {}
+        for r in self.assign.values():
+            if r is not None: seen[r.ref] = r
+        return list(seen.values())
+
+
 class CrewEngine:
     def __init__(self, *, llm: LLM, agent_chat: AgentChat, models: dict, runtime: ModelRuntime, sysmem: Callable[[], SystemMemory]):
         self.llm, self.agent_chat, self.models, self.runtime, self.sysmem = llm, agent_chat, models, runtime, sysmem
@@ -317,24 +345,52 @@ class CrewEngine:
         row = self.models.get(ref)
         return footprint(row.size_bytes) if row and row.manageable else 0     # servers we cannot unload are already resident
 
+    def pool_rows(self, cfg: CrewConfig) -> list:
+        refs = list(dict.fromkeys([*cfg.worker_models, *([cfg.worker_model] if cfg.worker_model else [])]))
+        return [self.models[r] for r in refs if r in self.models]
+
+    def layout(self, cfg: CrewConfig, inputs: list) -> Layout:
+        """Measure every file, cut the long ones into balanced parts, and spread the parts over the switched-on models."""
+        pool = self.pool_rows(cfg)
+        target = cfg.split_chars or max(8000, cfg.attachment_chars * 2)
+        parts, report = split_inputs(list(inputs or []), n_models=max(1, len(pool)), target_chars=target, max_total=cfg.max_subtasks,
+                                     max_parts_per_file=cfg.max_parts_per_file)
+        assign, free = {}, []
+        for p in parts:
+            if p.worker_model and p.worker_model in self.models: assign[p.name] = self.models[p.worker_model]      # forced for this file: respected
+            else: free.append(p)
+        unused: list = []
+        if pool:
+            def weight(p) -> int:
+                return len(p.text) or p.hint_chars or (max(len(p.images_b64), p.hint_pages) * 3000 if (p.images_b64 or p.hint_images) else 1000)
+            got, unused = distribute([Job(p.name, weight(p), p.needs_vision) for p in free], pool)
+            for p in free:
+                row = got.get(p.name)
+                if row is None and p.needs_vision: row = pick_worker(list(self.models.values()), needs_vision=True)  # nothing in the pool can read pictures
+                assign[p.name] = row
+        else:
+            for p in free: assign[p.name] = pick_worker(list(self.models.values()), needs_vision=p.needs_vision)
+        return Layout(parts, report, assign, pool, unused)
+
     def worker_row_for(self, inp: CrewInput | None, cfg: CrewConfig, *, needs_vision: bool | None = None) -> ModelRow | None:
         vision = inp.needs_vision if (needs_vision is None and inp) else bool(needs_vision)
         for ref in (inp.worker_model if inp else None, cfg.worker_model):
             if ref: return self.models.get(ref)
         return pick_worker(list(self.models.values()), needs_vision=vision)
 
-    async def make_plan(self, cfg: CrewConfig, inputs: list) -> tuple:
+    async def make_plan(self, cfg: CrewConfig, inputs: list, lay: Layout | None = None) -> tuple:
         """-> (Plan, worker rows used). Counts the boss plus each DISTINCT worker model once."""
-        rows = {}
-        for inp in (inputs or [None]):
-            r = self.worker_row_for(inp, cfg)
+        lay = lay or self.layout(cfg, inputs)
+        rows = {r.ref: r for r in lay.rows}
+        if not rows:                                                              # a job with no files: one worker
+            r = lay.pool[0] if lay.pool else pick_worker(list(self.models.values()))
             if r: rows[r.ref] = r
         try: resident = await self.runtime.loaded()
         except Exception: resident = {}
         reclaim = sum(b for ref, b in resident.items() if self.runtime.can_unload(ref))
         distinct = [self._fp(ref) for ref in rows if ref != cfg.boss]
         plan = plan_schedule(self.sysmem(), self._fp(cfg.boss), distinct, preference=cfg.preference, max_parallel=cfg.max_workers,
-                             reclaimable=reclaim, wanted_workers=max(1, len(inputs)))
+                             reclaimable=reclaim, wanted_workers=max(1, len(lay.inputs)))
         return plan, list(rows.values())
 
     # ---------------------------------------------------------------- run
@@ -418,6 +474,7 @@ class _Run:
         self.gov: Governor | None = None
         self.plan_note = ""
         self.final_text = ""
+        self.layout: Layout | None = None
 
     # ------------------------------------------------------------ events
     def state(self, sub: Subtask, state: str, **extra):
@@ -432,7 +489,15 @@ class _Run:
         cfg, s = self.cfg, self.s
         if cfg.boss not in self.e.models:
             s.emit({"error": {"kind": "model", "message": "The boss model isn't available. Pick another boss model."}}); return
-        plan, rows = await self.e.make_plan(cfg, list(self.inputs.values()))
+        self.layout = lay = self.e.layout(cfg, list(self.inputs.values()))
+        self.inputs = {i.name: i for i in lay.inputs}                              # long files are now their parts
+        for r in lay.report:
+            names = ", ".join(dict.fromkeys(lay.assign[n].id for n in (f"{r['name']} ({p})" for p in r["parts"]) if lay.assign.get(n)))
+            size = (f"{r['pages']} pages, " if r.get("pages") else "") + f"{r['chars']:,} characters"
+            s.emit({"notice": f"{r['name']} is long ({size}), so it is split into {len(r['parts'])} parts ({', '.join(r['parts'])}) that are read at the same time" + (f" by {names}." if names else ".")})
+        for m in lay.unused:
+            s.emit({"notice": f"{m.id} was switched on but has nothing to read: there are not enough parts to give every model some. Add more files or choose fewer models."})
+        plan, rows = await self.e.make_plan(cfg, list(self.inputs.values()), lay=lay)
         s.emit({"start": {"id": s.id, "plan": plan.as_dict(), "boss": cfg.boss}})
         if not plan.feasible:
             s.emit({"error": {"kind": "memory", "message": plan.reason}}); return
@@ -456,6 +521,8 @@ class _Run:
     async def _plan(self) -> list:
         cfg = self.cfg
         manifest = "\n".join(f"- {i.name} ({i.kind}, {len(i.text):,} characters" + (f", {len(i.images_b64)} page images" if i.images_b64 else "") + ")" for i in self.inputs.values()) or "(no files)"
+        if any(i.parent for i in self.inputs.values()):
+            manifest += "\n\nLong files were already cut into parts of about equal size. Give each part its own subtask; every part is read by its own worker."
         msgs = [ChatMessage("system", PLAN_SYSTEM.replace("{n}", str(cfg.max_subtasks))),
                 ChatMessage("user", f"Task: {self.task}\n\nInputs:\n{manifest}")]
         raw, why = None, ""
@@ -478,7 +545,11 @@ class _Run:
         out, covered = [], set()
         for raw in data["subtasks"][: self.cfg.max_subtasks]:
             if not isinstance(raw, dict): continue
-            names = [n for n in (raw.get("inputs") or []) if isinstance(n, str) and n in self.inputs]
+            names = []
+            for n in (raw.get("inputs") or []):
+                if not isinstance(n, str): continue
+                if n in self.inputs: names.append(n)
+                else: names.extend(k for k, v in self.inputs.items() if v.parent == n)       # the boss named the whole file: it now means all of its parts
             title = str(raw.get("title") or "").strip()[:80] or f"Worker {len(out) + 1}"
             ins = str(raw.get("instructions") or "").strip()[:2000] or self.task
             size = raw.get("size") if raw.get("size") in ("small", "large") else "small"
@@ -487,21 +558,43 @@ class _Run:
         for name in self.inputs:                                                  # the boss must not silently drop a file
             if name not in covered and len(out) < self.cfg.max_subtasks + len(self.inputs):
                 out.append(Subtask(f"w{len(out) + 1}", name, f"Read this file thoroughly for the task: {self.task}", [name]))
-        return self._assign_models(out)
+        return self._finish(out)
 
     def _default_plan(self) -> list:
-        if not self.inputs: return self._assign_models([Subtask("w1", "Worker", self.task, [])])
-        return self._assign_models([Subtask(f"w{i + 1}", n, f"{self.task}\n\nRead {n} thoroughly.", [n]) for i, n in enumerate(self.inputs)])
+        if not self.inputs: return self._finish([Subtask("w1", "Worker", self.task, [])])
+        return self._finish([Subtask(f"w{i + 1}", n, f"{self.task}\n\nRead {n} thoroughly.", [n]) for i, n in enumerate(self.inputs)])
+
+    def _finish(self, subs: list) -> list:
+        """Every part of a split file gets its own worker (a boss that lumped parts together is overruled), each told what it covers; then models are assigned."""
+        out = []
+        for sub in subs:
+            parts = [n for n in sub.inputs if self.inputs[n].parent]
+            if len(parts) > 1:
+                rest = [n for n in sub.inputs if n not in parts]
+                if rest: out.append(dataclasses.replace(sub, inputs=rest))
+                out.extend(dataclasses.replace(sub, title=n, inputs=[n]) for n in parts)
+            else: out.append(sub)
+        for i, sub in enumerate(out, 1):
+            sub.id = f"w{i}"
+            if len(sub.inputs) == 1 and self.inputs[sub.inputs[0]].parent:
+                inp = self.inputs[sub.inputs[0]]
+                sub.title = inp.name
+                sub.instructions = (sub.instructions.rstrip() + f"\n\nYou read ONLY {inp.label} of {inp.parent} (part {inp.part_index} of {inp.part_total}). Other workers read the other parts "
+                                    "at the same time and the boss combines everything: cover your part completely, keep its page numbers, and do not guess about pages you were not given.")[:2000]
+        return self._assign_models(out)
 
     def _assign_models(self, subs: list) -> list:
+        lay = self.layout
+        models = list(self.e.models.values())
         for sub in subs:
-            first = self.inputs.get(sub.inputs[0]) if sub.inputs else None
             vision = any(self.inputs[n].needs_vision for n in sub.inputs)
-            row = self.e.worker_row_for(first, self.cfg, needs_vision=vision)
-            if vision and (row is None or row.vision is not True):
-                row = pick_worker(list(self.e.models.values()), needs_vision=True) or row
-            if sub.size == "large" and not vision:                                # the boss asked for a stronger worker: the biggest one that is not bigger than the boss
-                bigger = [m for m in rank_workers(list(self.e.models.values())) if m.ref != self.cfg.boss and self.e._fp(m.ref) <= self.e._fp(self.cfg.boss)]
+            row = lay.assign.get(sub.inputs[0]) if (lay and sub.inputs) else None
+            if row is None and lay and lay.pool and not vision: row = lay.pool[0]          # a worker with no file: the first switched-on model
+            if row is None or (vision and row.vision is not True):
+                row = pick_worker(models, needs_vision=vision) or row
+            if sub.size == "large" and not vision:                                # the boss asked for a stronger worker: the biggest allowed one that is not bigger than the boss
+                allowed = lay.pool if (lay and lay.pool) else models
+                bigger = [m for m in rank_workers(allowed) if m.ref != self.cfg.boss and self.e._fp(m.ref) <= self.e._fp(self.cfg.boss)]
                 if bigger: row = bigger[-1]
             sub.ref = row.ref if row else self.cfg.boss                           # nothing suitable installed: the boss's own model
         return subs
@@ -532,7 +625,8 @@ class _Run:
                 guidance = await self._boss_fix(sub, last)
                 chunk = chunk // 2
                 self._escalate_model(sub)
-            elif attempt == 2:                                                      # still failing: hand it back to the user
+            elif attempt == 2:                                                      # still failing: one more step up the pool, then hand it back to the user
+                self._escalate_model(sub)
                 reply = await self._ask_user(sub, f"{sub.title} keeps failing: {sub.error}\n\nType new instructions to try again, or 'skip' to leave it out.", kind="worker_failed")
                 if reply.strip().lower() in ("skip", "s", "no"):
                     self.state(sub, "skipped"); self.s.emit({"result": {"id": sub.id, "title": sub.title, "summary": "", "skipped": True, "inputs": sub.inputs}}); return
@@ -546,7 +640,8 @@ class _Run:
 
     def _escalate_model(self, sub: Subtask):
         vision = any(self.inputs[n].needs_vision for n in sub.inputs)
-        ranked = rank_workers(list(self.e.models.values()), needs_vision=vision)
+        pool = rank_workers(self.layout.pool, needs_vision=vision) if (self.layout and self.layout.pool) else []
+        ranked = pool if pool else rank_workers(list(self.e.models.values()), needs_vision=vision)       # models the person switched on are the only ones used; with none switched on, any installed model may be tried
         refs = [m.ref for m in ranked]
         if sub.ref in refs and refs.index(sub.ref) + 1 < len(refs):
             sub.ref = refs[refs.index(sub.ref) + 1]

@@ -46,7 +46,7 @@ async def test_notes_and_progress_stream_live():
     big = CrewInput("big.pdf", "pdf", text="\n\n".join(f"Section {i}. " + "detail " * 200 for i in range(8)))
     t = Team(m, {"subtasks": [{"title": "Big", "instructions": "x", "inputs": ["big.pdf"]}], "conventions": ["Use metric"], "glossary": {"ARR": "revenue"}},
              workers={"w1": lambda msgs: 'Notes here. <post key="unit">metric</post> ' * 10})
-    ev = await run_crew(engine(m, t), "t", [big], CrewConfig(BOSS, attachment_chars=3000, review=False))
+    ev = await run_crew(engine(m, t), "t", [big], CrewConfig(BOSS, attachment_chars=3000, review=False, max_parts_per_file=1))
     boards = of(ev, "blackboard"); assert boards[0]["conventions"] == ["Use metric"] and boards[0]["glossary"] == [{"term": "ARR", "meaning": "revenue"}]
     assert boards[-1]["facts"] == [{"key": "unit", "value": "metric", "agent": "w1"}]
     prog = [p for p in of(ev, "agent_progress") if p["id"] == "w1"]

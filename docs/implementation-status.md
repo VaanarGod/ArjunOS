@@ -58,3 +58,13 @@ Last Python run: `343 passed in 21.98s`. Last renderer run (Node + jsdom): `# pa
 
 ## Next steps
 1. Compile and run on a Mac; fix errors. 2. Run against your real Ollama model; check the tag protocol and the search \"Test\" button against live DuckDuckGo. 3. Keychain-backed MCP secrets. 4. whisper.cpp / Piper subprocess providers. 5. Scheduler. 6. Setup wizard, global shortcut, launch-at-login.
+
+
+## Computer use (added)
+
+| Piece | Status |
+|---|---|
+| Bridge: protocol, safety rules, verification, plan/execute/verify loop, approvals, audit, intent, API | Implemented. Covered by `tests/test_computer.py` (67 tests) and a mutation check of the key protections. |
+| Chat integration, settings, Ollama `keep_alive`/JSON mode | Implemented and tested, including an end-to-end run over real HTTP/SSE with a scripted Ollama. |
+| Mac app: browser driver, desktop driver (Accessibility, Vision OCR, ScreenCaptureKit, CGEvent), overlay, settings, composer switch | Written, syntax-checked with a parser, **not compiled or run**. Needs a build and the manual checklist on a Mac. |
+| Real-model quality and latency | **Not measured.** |

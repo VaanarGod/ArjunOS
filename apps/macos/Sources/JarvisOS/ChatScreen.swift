@@ -221,6 +221,8 @@ struct Composer: View {
                 Divider().frame(height: 18)
                 ModelMenu()
                 Divider().frame(height: 18)
+                ComputerMenu()
+                Divider().frame(height: 18)
                 Label("Ask before acting", systemImage: "hand.raised").font(.callout).foregroundStyle(.secondary)
                     .help("Every consequential action needs your approval. Approvals appear under Tasks.")
                 if model.current.temporary { Label("Temporary", systemImage: "eye.slash").font(.caption).foregroundStyle(.orange) }

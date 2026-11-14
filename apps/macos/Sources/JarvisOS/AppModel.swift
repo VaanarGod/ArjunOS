@@ -93,6 +93,10 @@ final class AppModel {
 
     // Integrated browser
     let browser = BrowserModel()
+    let computer = ComputerController()                      // operates the built-in browser / the desktop when the bridge asks (computer use)
+    var computerMode: String?                                // "browser" | "desktop" while the composer's Computer switch is on
+    /// The pane shows the assistant's own private browser while it works in it, otherwise yours.
+    var visibleBrowser: BrowserModel { computer.showsAgentBrowser ? computer.agentBrowser : browser }
     var pageReading = false
     var openLinksInBrowser = true
     func setOpenLinksInBrowser(_ on: Bool) { openLinksInBrowser = on; UserDefaults.standard.set(on, forKey: "openLinksInBrowser") }
@@ -156,6 +160,11 @@ final class AppModel {
         store = try? ConversationStore(directory: Self.supportDir.appendingPathComponent("conversations"))
         currentID = current.id
         browser.isFeatureEnabled = { [weak self] in self?.settings?.browserEnabled ?? true }
+        computer.userBrowser = browser
+        computer.post = { [weak self] id, result in _ = await self?.run("Computer", quiet: true) { try await $0.postComputerResult(id: id, result) } }
+        computer.stop = { [weak self] in self?.stopStreaming() }
+        computer.approvalsProvider = { [weak self] in self?.approvals ?? [] }
+        computer.resolveApproval = { [weak self] id, ok in await self?.resolve(id, approve: ok) }
         browser.onOpened = { AppWindows.ensureWidth(1480) }
         LinkRouter.handler = { [weak self] url in self?.openLink(url) }
         if let store {                                    // chat list: headers only, read off the main thread
@@ -434,6 +443,7 @@ final class AppModel {
     func newConversation(temporary: Bool = false) {
         pendingSelectID = nil
         current = Conversation(title: "New conversation", temporary: temporary); streamError = nil; drafts.removeAll(); selection = .chat
+        computer.returnToMyBrowser()
     }
     /// Opens a chat from the sidebar. The list only holds headers, so the messages are read from disk (off the main thread).
     func select(_ c: Conversation) {
@@ -504,15 +514,16 @@ final class AppModel {
             guard let self else { return }
             do {
                 var page: PagePayload? = nil
-                if self.browser.wantsContext {                                  // read the live page now, so the answer reflects what is open at this moment
+                if self.computerMode == nil, self.browser.wantsContext {          // read the live page now, so the answer reflects what is open at this moment
                     self.pageReading = true
                     page = await self.browser.contextForSend()
                     self.pageReading = false
                     self.lastEventAt = Date()
                 }
-                let stream = try await client.chatStream(endpoint: parts[0], model: parts[1], messages: history, page: page)
+                let stream = try await client.chatStream(endpoint: parts[0], model: parts[1], messages: history, page: page, computerMode: self.computerMode)
                 for try await ev in stream {
                     self.lastEventAt = Date()
+                    if let req = ev.computerRequest { Task { await self.computer.handle(req) }; continue }      // the bridge wants the screen read, or one step done
                     let last = self.streamWorking.messages.count - 1
                     let outcome = ChatReducer.apply(ev, to: &self.streamWorking.messages[last])       // in place: no copy of the growing text per token
                     if outcome == .thinking { self.modelThinking = true } else if !(ev.ping ?? false) && !(ev.delta ?? "").isEmpty { self.modelThinking = false }
@@ -550,7 +561,13 @@ final class AppModel {
             }
         }
     }
-    func stopStreaming() { streamTask?.cancel() }
+    func stopStreaming() {
+        streamTask?.cancel()
+        if computer.active {                                       // also tell the bridge, so a request it is waiting on is released at once
+            computer.end()
+            Task { [weak self] in _ = await self?.run("Computer", quiet: true) { try await $0.stopComputer() } }
+        }
+    }
     private func finishStream() {
         let cleanFinish = streamError == nil && !Task.isCancelled
         flushTask?.cancel(); flushTask = nil
@@ -558,6 +575,7 @@ final class AppModel {
         streamWorking = Conversation(); streamDirty = false              // let go of the working copy
         if current.id == done.id { current = done }
         isStreaming = false
+        computer.end()
         stopThinkingTicker(); watchdogTask?.cancel(); watchdogTask = nil; modelThinking = false
         if cleanFinish { doneUnread = true; if windowVisible { scheduleDoneClear(after: 4) } }
         persist(done)
@@ -607,6 +625,12 @@ final class AppModel {
     // MARK: Settings & web search
     func refreshHealth() async { if let h = await run("Health", quiet: true, { try await $0.health() }) { health = h } }
     func openVaultNote(_ path: String) { vault.openInObsidian(path) }
+    func updateComputerSettings(consented: Bool? = nil, browser: Bool? = nil, desktop: Bool? = nil, autoStart: Bool? = nil, approval: String? = nil,
+                                maxSteps: Int? = nil, profile: String? = nil, marks: Bool? = nil, backend: String? = nil, cuaCommand: String? = nil, display: String? = nil) async {
+        if let st = await run("Settings", { try await $0.updateComputerSettings(consented: consented, browser: browser, desktop: desktop, autoStart: autoStart, approval: approval, maxSteps: maxSteps, profile: profile,
+                                                                                 marks: marks, backend: backend, cuaCommand: cuaCommand, display: display) }) { settings = st }
+        if consented == false { computerMode = nil }
+    }
     func refreshSettings() async { if let st = await run("Settings", quiet: true, { try await $0.settings() }) { settings = st } }
     func updateSettings(mode: String? = nil, consent: Bool? = nil, maxResults: Int? = nil, inject: Bool? = nil, attachmentChars: Int? = nil, shell: Bool? = nil, files: Bool? = nil, readPaths: Bool? = nil, browser: Bool? = nil, pageChars: Int? = nil) async {
         if let st = await run("Settings", { try await $0.updateSettings(webSearchMode: mode, webSearchConsented: consent, webSearchMaxResults: maxResults, memoryAutoInject: inject, attachmentContextChars: attachmentChars, shellEnabled: shell, filesEnabled: files, readPaths: readPaths, browserEnabled: browser, pageContextChars: pageChars) }) { settings = st }

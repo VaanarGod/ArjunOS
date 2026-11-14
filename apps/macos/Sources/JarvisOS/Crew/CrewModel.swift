@@ -107,7 +107,7 @@ final class CrewModel {
     // setup
     var task = ""
     var bossRef: String?
-    var workerRef: String?                   // nil = pick the smallest capable model automatically
+    var workerRefs: [String] = []            // the models switched on (work is spread over all of them); empty = pick the smallest capable model automatically
     var preference: CrewPreference = .auto
     var maxWorkers = 4
     var review = true                        // the boss reviews finished reports before writing the final answer
@@ -167,9 +167,10 @@ final class CrewModel {
             try? await Task.sleep(nanoseconds: 500_000_000)
             guard !Task.isCancelled, let self, let c = self.app?.bridge else { return }
             let inputs = self.files.filter { $0.state == .ready }.map {
-                CrewRequest.Input(name: $0.name, kind: $0.kind, text: "", imagesB64: $0.images.isEmpty ? [] : ["-"], workerModel: $0.workerModel)
+                CrewRequest.Input(name: $0.name, kind: $0.kind, text: "", imagesB64: $0.images.isEmpty ? [] : ["-"], workerModel: $0.workerModel,
+                                  chars: $0.text.count, pages: $0.scanned ? $0.images.count : $0.pages)      // the preview needs the length, not the text
             }
-            let req = CrewRequest(task: self.task.isEmpty ? "preview" : self.task, boss: boss, workerModel: self.workerRef, inputs: inputs,
+            let req = CrewRequest(task: self.task.isEmpty ? "preview" : self.task, boss: boss, workerModels: self.workerRefs, inputs: inputs,
                                   preference: self.preference.rawValue, maxWorkers: self.maxWorkers)
             do { self.preview = try await c.crewPreview(req); self.previewError = nil }
             catch { self.preview = nil; self.previewError = error.localizedDescription }
@@ -254,7 +255,7 @@ final class CrewModel {
         let inputs = files.filter { $0.state == .ready }.map {
             CrewRequest.Input(name: $0.name, kind: $0.kind, text: $0.text, imagesB64: $0.images, workerModel: $0.workerModel, note: $0.note)
         }
-        let req = CrewRequest(task: task, boss: boss, workerModel: workerRef, inputs: inputs, preference: preference.rawValue, maxWorkers: maxWorkers, review: review)
+        let req = CrewRequest(task: task, boss: boss, workerModels: workerRefs, inputs: inputs, preference: preference.rawValue, maxWorkers: maxWorkers, review: review)
         let bossAgent = CrewAgent(id: "boss", title: "Boss", model: boss, isBoss: true, browser: nil)
         agents = [bossAgent]
         runTask = Task { [weak self] in

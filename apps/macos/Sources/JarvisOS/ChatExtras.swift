@@ -32,7 +32,7 @@ struct ActivityChip: View {
                 if !activity.links.isEmpty || hasOutput {
                     Button { withAnimation(Theme.snappy) { expanded.toggle() } } label: {
                         Image(systemName: "chevron.down").font(.caption2).rotationEffect(.degrees(expanded ? 180 : 0))
-                    }.buttonStyle(.plain).help(expanded ? "Hide" : (activity.kind == "shell" ? "Show output" : (activity.kind == "file" ? "Show what was written" : "Show sources")))
+                    }.buttonStyle(.plain).help(expanded ? "Hide" : (activity.kind == "shell" ? "Show output" : (activity.kind == "computer" ? "Show every step" : (activity.kind == "file" ? "Show what was written" : "Show sources"))))
                 }
                 if activity.kind == "file", activity.status == "done" {
                     Button("Reveal") { model.revealFile(activity) }.buttonStyle(.plain).font(.caption.weight(.semibold)).foregroundStyle(Theme.accent).help("Show in Finder")
@@ -77,14 +77,14 @@ struct ActivityChip: View {
         }
     }
 
-    private var isOutputKind: Bool { activity.kind == "shell" || activity.kind == "file" }
+    private var isOutputKind: Bool { activity.kind == "shell" || activity.kind == "file" || activity.kind == "computer" }
     private var hasOutput: Bool { isOutputKind && !(activity.output ?? "").isEmpty }
 
     /// What the command printed, in a terminal-looking block.
     private var terminalOutput: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                Text(activity.kind == "file" ? (activity.detail ?? "") : "$ \(activity.detail ?? "")").font(.system(size: 12, weight: .semibold, design: .monospaced)).lineLimit(3)
+                Text(activity.kind == "file" || activity.kind == "computer" ? (activity.detail ?? "") : "$ \(activity.detail ?? "")").font(.system(size: 12, weight: .semibold, design: .monospaced)).lineLimit(3)
                 Spacer(minLength: 8)
                 if let code = activity.exitCode {
                     Text(code == 0 ? "exit 0" : "exit \(code)").font(.caption2.monospaced()).padding(.horizontal, 6).padding(.vertical, 2)
@@ -110,6 +110,7 @@ struct ActivityChip: View {
             case "file": Image(systemName: "doc.badge.plus").foregroundStyle(Color.green).symbolEffect(.bounce, value: activity.status)
             case "shell": Image(systemName: "terminal.fill").foregroundStyle(activity.exitCode == nil || activity.exitCode == 0 ? Theme.accent : Color.orange)
             case "search": Image(systemName: "globe").foregroundStyle(Theme.accent)
+            case "computer": Image(systemName: "cursorarrow.rays").foregroundStyle(Theme.accent)
             case "memory_saved": Image(systemName: "brain.head.profile").foregroundStyle(Color.green)
             case "memory_used": Image(systemName: "brain").foregroundStyle(Color.purple)
             case "vault_used": Image(systemName: "books.vertical").foregroundStyle(Color.teal)
@@ -149,7 +150,7 @@ struct ApprovalBanner: View {
     var body: some View {
         ForEach(model.approvals) { a in
             Group {
-                if a.tool == "shell" { shellCard(a) } else { toolCard(a) }
+                if a.tool == "shell" { shellCard(a) } else if a.tool.hasPrefix("computer") { computerCard(a) } else { toolCard(a) }
             }
             .transition(.move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.97, anchor: .bottom)))
         }
@@ -170,6 +171,33 @@ struct ApprovalBanner: View {
             HStack {
                 Button("Deny") { Task { await model.resolve(a.id, approve: false) } }.buttonStyle(GlassButtonStyle())
                 Button("Approve once") { Task { await model.resolve(a.id, approve: true) } }.buttonStyle(GlassButtonStyle(prominent: true))
+            }
+        }
+        .padding(14).liquidGlass(in: RoundedRectangle(cornerRadius: 18, style: .continuous), tint: Color.orange.opacity(0.3))
+    }
+
+    /// One step of a computer task (or the start of one). The text shown comes from the bridge's own description of the real target, never from the page.
+    private func computerCard(_ a: Approval) -> some View {
+        func s(_ k: String) -> String { if case .string(let v)? = a.args[k] { return v } else { return "" } }
+        let starting = !s("goal").isEmpty
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "cursorarrow.rays").foregroundStyle(Color.orange)
+                Text(starting ? "Let \(model.assistantName) operate your \(s("mode") == "desktop" ? "Mac" : "browser")?" : "\(model.assistantName) wants to do this").font(.callout.weight(.semibold))
+            }
+            Text(starting ? s("goal") : s("do")).font(.system(size: 13, weight: .semibold)).textSelection(.enabled).lineLimit(5)
+                .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            if !starting {
+                if !s("where").isEmpty { Text("In: \(s("where"))").font(.caption).foregroundStyle(.secondary) }
+                if !s("why").isEmpty { Text("Why I am asking: \(s("why"))").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+            }
+            HStack {
+                Text(starting ? "It asks again before anything consequential. Stop it any time with the Stop button or ⌃⌥⎋." : "Approving allows this one step only.")
+                    .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Button("Deny") { Task { await model.resolve(a.id, approve: false) } }.buttonStyle(GlassButtonStyle())
+                Button(starting ? "Start" : "Approve once") { Task { await model.resolve(a.id, approve: true) } }.buttonStyle(GlassButtonStyle(prominent: true))
             }
         }
         .padding(14).liquidGlass(in: RoundedRectangle(cornerRadius: 18, style: .continuous), tint: Color.orange.opacity(0.3))
