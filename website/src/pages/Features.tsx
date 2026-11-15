@@ -56,8 +56,8 @@ function SecurityVisual() {
 }
 
 export default function Features() {
-  const primaryFeatures = features.filter(f => ['local-chat', 'crew', 'memory', 'privacy'].includes(f.id))
-  const secondaryFeatures = features.filter(f => !['local-chat', 'crew', 'memory', 'privacy'].includes(f.id))
+  const primaryFeatures = features.filter(f => ['local-chat', 'crew', 'memory', 'security'].includes(f.id))
+  const secondaryFeatures = features.filter(f => !['local-chat', 'crew', 'memory', 'security'].includes(f.id))
 
   return (
     <>
@@ -95,7 +95,7 @@ export default function Features() {
                 >
                   <div className="absolute top-0 right-0 p-8 opacity-20 group-hover:opacity-40 transition-opacity">
                      {feature.id === 'local-chat' ? <NeuralVisual /> : 
-                      feature.id === 'privacy' ? <SecurityVisual /> : 
+                      feature.id === 'security' ? <SecurityVisual /> : 
                       <Icon size={80} strokeWidth={0.5} />}
                   </div>
                   

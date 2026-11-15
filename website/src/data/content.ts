@@ -32,6 +32,7 @@ export const features = [
   { id: 'terminal', title: 'Sandboxed terminal', description: 'A short allow-list of commands, each run only after you approve it.', status: 'Implemented', icon: 'Terminal' },
   { id: 'create-files', title: 'Create files', description: 'Ask it to write a file and it does so in the workspace folder, never overwriting.', status: 'Implemented', icon: 'FolderPlus' },
   { id: 'rich-answers', title: 'Rich answers', description: 'Markdown, tables, code with Copy, and math (KaTeX), all rendered offline.', status: 'Implemented', icon: 'Palette' },
+  { id: 'voice', title: 'Voice Interaction', description: 'Speech recognition and speech synthesis integrations.', status: 'Planned', icon: 'Mic' },
   { id: 'security', title: 'Local-first security', description: 'Loopback only, per-launch bearer token, one approval per action.', status: 'Design principle', icon: 'Shield' },
 ] as const
 
