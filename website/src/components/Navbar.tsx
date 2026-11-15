@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Menu, X, Download } from 'lucide-react'
-import { DOWNLOAD_URL } from '../data/content'
+import { Menu, X, Download, Github } from 'lucide-react'
+import { DOWNLOAD_URL, REPO_URL } from '../data/content'
 
 const links = [
   { to: '/', label: 'Home' },
@@ -75,6 +75,18 @@ export default function Navbar() {
         </div>
 
         <div className="flex items-center gap-2">
+          
+          {/* GITHUB BUTTON */}
+          <a
+            href={REPO_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="group flex items-center justify-center rounded-xl border border-white/10 bg-white/5 p-2.5 text-gray-300 transition-all hover:border-cyan/30 hover:bg-cyan/10 hover:text-cyan"
+            aria-label="GitHub Repository"
+          >
+            <Github size={18} className="transition-transform group-hover:scale-110" />
+          </a>
+
           <a
             href={DOWNLOAD_URL}
             className="group relative hidden items-center gap-2 overflow-hidden rounded-xl border border-cyan/40 bg-cyan/10 px-4 py-2 text-sm font-semibold text-cyan transition-all hover:bg-cyan/20 sm:flex"
@@ -83,6 +95,7 @@ export default function Navbar() {
             <span>Download</span>
             <span className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
           </a>
+          
           <button
             onClick={() => setOpen(!open)}
             className="rounded-lg border border-white/10 p-2 text-gray-300 lg:hidden"
