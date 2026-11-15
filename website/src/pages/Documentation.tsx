@@ -1,4 +1,5 @@
 import Section from '../components/ui/Section'
+import Scene3D from '../components/three/Scene3D'
 import { documentationSections, REPO_URL, DOCS_URL } from '../data/content'
 import { ExternalLink } from 'lucide-react'
 
@@ -14,6 +15,9 @@ const docsLinks = [
 export default function Documentation() {
   return (
     <>
+      <div className="fixed inset-0 z-0"><Scene3D variant="knowledge" /></div>
+      <div className="pointer-events-none fixed inset-0 bg-docs-grid z-0" />
+      <div className="relative z-10">
       <Section>
         <div className="max-w-2xl">
           <p className="text-sm font-medium uppercase tracking-[0.2em] text-cyan">Documentation</p>
@@ -83,6 +87,7 @@ export default function Documentation() {
           </div>
         </div>
       </Section>
+    </div>
     </>
   )
 }

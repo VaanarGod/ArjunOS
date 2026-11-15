@@ -1,4 +1,5 @@
 import Section from '../components/ui/Section'
+import Scene3D from '../components/three/Scene3D'
 import { Shield, Cpu, Layers, Github, Lock, Boxes, Code2, FileCode2 } from 'lucide-react'
 import { REPO_URL, LICENSE, LICENSE_URL, DOCS_URL } from '../data/content'
 
@@ -44,6 +45,9 @@ const values = [
 export default function About() {
   return (
     <>
+      <div className="fixed inset-0 z-0"><Scene3D variant="galaxy" /></div>
+      <div className="pointer-events-none fixed inset-0 bg-about-space z-0" />
+      <div className="relative z-10">
       <Section>
         <div className="max-w-2xl">
           <p className="text-sm font-medium uppercase tracking-[0.2em] text-cyan">About</p>
@@ -122,6 +126,7 @@ export default function About() {
           </div>
         </div>
       </Section>
+    </div>
     </>
   )
 }

@@ -1,4 +1,3 @@
-import { lazy, Suspense } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowRight, Download, Shield, Cpu, Layers, Sparkles, MessageSquare, Users, Database } from 'lucide-react'
@@ -6,17 +5,21 @@ import Section from '../components/ui/Section'
 import GlassCard from '../components/ui/GlassCard'
 import MagneticButton from '../components/ui/MagneticButton'
 import Screenshot from '../components/ui/Screenshot'
+import Scene3D from '../components/three/Scene3D'
+import ProjectIntel from '../components/ProjectIntel'
 import { features, techStack, APP_VERSION, APP_STATUS, REPO_URL, DOWNLOAD_URL, screenshots } from '../data/content'
-
-const AICore = lazy(() => import('../components/three/AICore'))
 
 export default function Home() {
   return (
     <>
       <section className="relative flex min-h-[92vh] items-center overflow-hidden">
-        <div className="absolute inset-0 grid-bg opacity-20" />
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-void/50 to-void z-10 pointer-events-none" />
-        <div className="absolute left-1/2 top-1/2 h-[600px] w-[600px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan/10 blur-[150px]" />
+        {/* Full Screen 3D Background */}
+        <div className="fixed inset-0 z-0">
+          <Scene3D variant="core" />
+        </div>
+        
+        {/* Subtle grid over the 3D background */}
+        <div className="absolute inset-0 grid-bg opacity-20 pointer-events-none z-0" />
 
         <div className="relative z-20 mx-auto grid w-full max-w-6xl items-center gap-12 px-6 lg:grid-cols-2 pointer-events-auto">
           <motion.div
@@ -52,7 +55,10 @@ export default function Home() {
                 <Download size={16} />
                 Download ArjunOS
               </MagneticButton>
-              <MagneticButton href="#/features" className="border border-white/10 bg-white/5 text-white hover:border-cyan/30 hover:bg-cyan/5">
+              <MagneticButton
+                href="#/features"
+                className="border border-white/10 bg-white/5 text-white hover:border-cyan/30 hover:bg-cyan/5"
+              >
                 Explore Features
                 <ArrowRight size={16} />
               </MagneticButton>
@@ -65,25 +71,17 @@ export default function Home() {
             </div>
           </motion.div>
 
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 1.2, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
-            className="relative h-[380px] w-full sm:h-[460px] lg:h-[520px]"
-          >
-            {/* Scale the canvas wrapper up and overflow the container to avoid hard clipping */}
-            <div className="pointer-events-none absolute inset-[-20%] sm:inset-[-30%] lg:inset-[-40%] z-0">
-              <Suspense fallback={<div className="h-full w-full" />}>
-                <AICore />
-              </Suspense>
-            </div>
-            <div className="pointer-events-none absolute inset-0 rounded-full border border-cyan/5" />
-          </motion.div>
+          {/* Empty column to let the full-screen 3D background breathe */}
+          <div className="hidden lg:block relative h-[520px]" />
         </div>
       </section>
 
+      <Section className="pt-0 pb-10">
+        <ProjectIntel />
+      </Section>
+
       <Section className="py-10 md:py-12">
-        <div className="grid gap-4 rounded-2xl border border-white/5 bg-white/[0.02] p-6 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 rounded-2xl border border-white/5 bg-[#050505]/80 backdrop-blur-md p-6 sm:grid-cols-2 lg:grid-cols-4 shadow-xl">
           {techStack.map((item) => (
             <div key={item.label}>
               <p className="text-xs uppercase tracking-wider text-gray-500">{item.label}</p>
@@ -118,7 +116,7 @@ export default function Home() {
             const feature = features.find((f) => f.id === id)
             if (!feature) return null
             return (
-              <GlassCard key={id} className="group">
+              <GlassCard key={id} className="group bg-[#050505]/90 backdrop-blur-md border-white/10 shadow-xl">
                 <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl border border-cyan/20 bg-cyan/5 text-cyan">
                   <Icon size={18} />
                 </div>
@@ -222,7 +220,7 @@ export default function Home() {
             your Mac, and try it with the models you already run.
           </p>
           <div className="relative mt-8 flex flex-wrap justify-center gap-4">
-            <MagneticButton href="#/download" className="bg-cyan text-void hover:bg-ice">
+            <MagneticButton href={DOWNLOAD_URL} className="bg-cyan text-void hover:bg-ice">
               <Download size={16} /> Download
             </MagneticButton>
             <MagneticButton href={REPO_URL} className="border border-white/10 bg-white/5 text-white hover:border-cyan/30">

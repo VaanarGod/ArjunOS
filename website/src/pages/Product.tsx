@@ -1,4 +1,5 @@
 import Section from '../components/ui/Section'
+import Scene3D from '../components/three/Scene3D'
 import Screenshot from '../components/ui/Screenshot'
 import { screenshots } from '../data/content'
 import { Monitor, ArrowRight, Layers, Shield, HardDrive } from 'lucide-react'
@@ -20,6 +21,7 @@ const architecture = `┌──────────────────�
 export default function Product() {
   return (
     <>
+      <div className="fixed inset-0 z-0"><Scene3D variant="blueprint" /></div>
       <div className="pointer-events-none fixed inset-0 bg-glass-panels z-0" />
       <div className="relative z-10">
       <Section>

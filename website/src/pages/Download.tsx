@@ -1,29 +1,28 @@
 import Section from '../components/ui/Section'
 import MagneticButton from '../components/ui/MagneticButton'
-import { Download, Github, Apple, Terminal, AlertTriangle, CheckCircle2, ExternalLink } from 'lucide-react'
-import { APP_VERSION, APP_STATUS, MIN_MACOS, LICENSE, REPO_URL, RELEASES_URL, DOWNLOAD_URL } from '../data/content'
+import { Download, Github, Apple, Terminal, AlertTriangle, CheckCircle2, ExternalLink, ChevronDown } from 'lucide-react'
+import { APP_VERSION, MIN_MACOS, LICENSE, RELEASES_URL, DOWNLOAD_URL } from '../data/content'
 
 export default function DownloadPage() {
   return (
     <>
-      <div className="pointer-events-none fixed inset-0 bg-energy-waves z-0 opacity-80" />
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-cyan/20 blur-[120px] rounded-full pointer-events-none" />
-      <div className="relative z-10">
-      <Section>
+      <Section className="min-h-[80vh] flex flex-col justify-center">
         <div className="mx-auto max-w-3xl text-center">
-          <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl border border-cyan/30 bg-cyan/10">
-            <div className="h-7 w-7 rounded-full bg-cyan shadow-[0_0_30px_rgba(34,211,238,0.8)]" />
+          
+          <div className="mx-auto mb-8 flex h-20 w-20 items-center justify-center rounded-3xl border border-cyan/30 bg-cyan/10 shadow-[0_0_50px_rgba(34,211,238,0.3)] animate-pulse-slow">
+            <div className="h-10 w-10 rounded-full bg-cyan shadow-[0_0_20px_rgba(34,211,238,0.8)]" />
           </div>
-          <h1 className="font-display text-4xl font-semibold tracking-tight text-white sm:text-5xl">
-            Download ArjunOS
+          
+          <h1 className="font-display text-5xl font-semibold tracking-tight text-white sm:text-6xl mb-6">
+            Ready to launch.
           </h1>
-          <p className="mt-5 text-gray-400">
+          
+          <p className="text-lg text-gray-400 mb-8 max-w-xl mx-auto leading-relaxed">
             ArjunOS <span className="font-mono text-cyan/80">v{APP_VERSION}</span>{' '}
-            is ready. Download the latest macOS release below, or build it
-            from source if you prefer.
+            is officially available for macOS. Download the disk image below to start running your local AI models.
           </p>
 
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+          <div className="flex flex-wrap items-center justify-center gap-3 mb-10">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan/20 bg-cyan/5 px-3 py-1 text-xs text-cyan">
               <CheckCircle2 size={13} /> Latest Release v{APP_VERSION}
             </span>
@@ -35,114 +34,86 @@ export default function DownloadPage() {
             </span>
           </div>
 
-          <div className="mt-10 flex flex-wrap justify-center gap-4">
-            <MagneticButton href={DOWNLOAD_URL} className="bg-cyan text-void shadow-glow-strong hover:bg-ice">
-              <Download size={16} /> Download ArjunOS v{APP_VERSION}
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+            <MagneticButton 
+              href={DOWNLOAD_URL} 
+              className="w-full sm:w-auto bg-cyan text-void shadow-glow-strong hover:bg-ice text-lg px-10 py-4"
+            >
+              <Download size={20} /> Download .dmg
             </MagneticButton>
-            <MagneticButton href={RELEASES_URL} className="border border-white/10 bg-white/5 text-white hover:border-cyan/30">
-              <Github size={16} /> View all releases
+            <MagneticButton 
+              href={RELEASES_URL} 
+              className="w-full sm:w-auto border border-white/10 bg-white/5 text-white hover:border-cyan/30 hover:bg-cyan/10 px-8 py-4"
+            >
+              <Github size={18} /> Release Notes
             </MagneticButton>
           </div>
 
-          <p className="mt-6 text-xs text-gray-500">
-            Direct download:{' '}
-            <a href={DOWNLOAD_URL} className="inline-flex items-center gap-1 font-mono text-cyan/70 hover:text-cyan">
-              ArjunOS-{APP_VERSION}.dmg <ExternalLink size={11} />
-            </a>
-            <br className="mt-1" />
-            Ad-hoc signed for local use, not notarized. If macOS blocks it on another Mac, right-click → Open.
+          <p className="mt-8 text-xs text-gray-500 max-w-lg mx-auto">
+            Ad-hoc signed for local use, not notarized. If macOS blocks it on another Mac, right-click the app → Open. 
+            <br className="mt-2" />
+            Direct link: <a href={DOWNLOAD_URL} className="text-cyan/70 hover:text-cyan font-mono">ArjunOS-{APP_VERSION}.dmg <ExternalLink size={10} className="inline" /></a>
           </p>
         </div>
       </Section>
 
       <Section className="pt-0">
-        <div className="grid gap-6 md:grid-cols-3">
-          <div className="glass rounded-2xl p-6">
-            <Apple className="mb-4 h-6 w-6 text-cyan" />
-            <h2 className="font-display text-lg font-semibold text-white">Compatibility</h2>
-            <ul className="mt-2 space-y-1.5 text-sm text-gray-400">
-              <li>{MIN_MACOS}</li>
-              <li>Xcode 15+ or Swift 5.9 toolchain</li>
-              <li>Python 3.11+</li>
-              <li>Optional: Ollama or another local model server</li>
+        <div className="grid gap-6 md:grid-cols-2 max-w-4xl mx-auto">
+          <div className="glass rounded-2xl p-6 border border-white/5 bg-[#050505]/80">
+            <Terminal className="mb-4 h-6 w-6 text-cyan" />
+            <h2 className="font-display text-lg font-semibold text-white mb-2">Where your data lives</h2>
+            <ul className="space-y-1.5 text-sm text-gray-400">
+              <li>State: <span className="font-mono text-gray-300">~/Library/Application Support/JarvisOS/state</span></li>
+              <li>Conversations: <span className="font-mono text-gray-300">…/JarvisOS/conversations</span></li>
+              <li>Workspace: <span className="font-mono text-gray-300">…/state/workspace</span></li>
             </ul>
           </div>
-          <div className="glass rounded-2xl p-6">
-            <Download className="mb-4 h-6 w-6 text-cyan" />
-            <h2 className="font-display text-lg font-semibold text-white">Current version</h2>
-            <p className="mt-2 font-mono text-sm text-cyan/80">v{APP_VERSION}</p>
-            <p className="mt-2 text-sm text-gray-400">
-              Early build. The chat core, safety layer, memory, MCP, web search, file reading and the interface are real and have been run on a Mac.
-            </p>
-          </div>
-          <div className="glass rounded-2xl p-6">
-            <Github className="mb-4 h-6 w-6 text-cyan" />
-            <h2 className="font-display text-lg font-semibold text-white">GitHub Releases</h2>
-            <p className="mt-2 text-sm text-gray-400">
-              The canonical release channel. All assets and source code are available there.
-            </p>
-            <a href={RELEASES_URL} target="_blank" rel="noreferrer" className="mt-4 inline-block text-xs font-medium text-cyan hover:text-ice">
-              Open releases →
-            </a>
+
+          <div className="glass rounded-2xl p-6 border border-white/5 bg-[#050505]/80">
+            <AlertTriangle className="mb-4 h-6 w-6 text-yellow-500" />
+            <h2 className="font-display text-lg font-semibold text-white mb-2">Requirements</h2>
+            <ul className="space-y-1.5 text-sm text-gray-400">
+              <li>{MIN_MACOS}</li>
+              <li>A local model server (e.g., Ollama, LM Studio)</li>
+              <li>Python 3.11+ (bundled in the .app)</li>
+            </ul>
           </div>
         </div>
       </Section>
 
-      <Section className="pt-0">
-        <div className="rounded-3xl border border-white/5 bg-white/[0.02] p-6 md:p-10">
-          <div className="mb-5 flex items-center gap-2">
-            <Terminal className="h-5 w-5 text-cyan" />
-            <h2 className="font-display text-xl font-semibold text-white">Build from source</h2>
-          </div>
-          <p className="text-sm text-gray-400">
-            If you prefer to inspect the code or modify the application:
-          </p>
-          <pre className="mt-4 overflow-x-auto rounded-2xl border border-cyan/10 bg-void/70 p-4 text-[12px] leading-relaxed text-cyan/80">
-{`# 1. Clone
-git clone ${REPO_URL}
+      {/* Developer Section - Collapsible */}
+      <Section className="pt-0 pb-32">
+        <details className="group max-w-4xl mx-auto rounded-2xl border border-white/5 bg-[#050505]/50 overflow-hidden">
+          <summary className="flex items-center justify-between p-6 cursor-pointer hover:bg-white/[0.02] transition-colors list-none">
+            <div className="flex items-center gap-3">
+              <Terminal size={18} className="text-gray-400 group-open:text-cyan" />
+              <span className="font-medium text-gray-300 group-open:text-white">Build from source (Developers)</span>
+            </div>
+            <ChevronDown size={18} className="text-gray-500 group-open:rotate-180 transition-transform" />
+          </summary>
+          <div className="p-6 pt-0 border-t border-white/5">
+            <p className="text-sm text-gray-400 mb-4 mt-4">
+              If you prefer to inspect the code or build the app yourself:
+            </p>
+            <pre className="overflow-x-auto rounded-xl border border-cyan/10 bg-[#000000] p-5 text-[12px] leading-relaxed text-cyan/80">
+{`# 1. Clone the repository
+git clone https://github.com/VaanarGod/ArjunOS.git
 cd ArjunOS
 
-# 2. Environment
-scripts/doctor.sh        # read-only environment report
-scripts/setup.sh         # creates the bridge virtualenv and installs it
+# 2. Setup environment
+scripts/doctor.sh        # read-only report
+scripts/setup.sh         # bridge virtualenv
+
+# 3. Run the app
 cd apps/macos && swift run JarvisOS
 
-# 3. Install a model yourself (ArjunOS never downloads weights)
-ollama pull llama3.2:3b
-
-# 4. Package a .app and .dmg
+# 4. Package to .dmg
 cd ../..
-scripts/package.sh              # dist/ArjunOS.app and dist/ArjunOS-${APP_VERSION}.dmg
-scripts/package.sh --open       # ...and launch it
-scripts/package.sh --install    # ...and copy to ~/Applications`}
-          </pre>
-
-          <div className="mt-6 flex items-start gap-3 rounded-xl border border-yellow-500/20 bg-yellow-500/5 p-4 text-sm text-yellow-200/90">
-            <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-            <p>
-              Prefer the packaged <span className="font-mono">.app</span> over{' '}
-              <span className="font-mono">swift run</span>: a bare executable is
-              not a real app bundle, which can make keyboard input unreliable.
-              If the bridge fails to start, the app stays usable and shows the
-              reason in <strong>Settings → Diagnostics → Restart</strong>.
-            </p>
+scripts/package.sh`}
+            </pre>
           </div>
-        </div>
+        </details>
       </Section>
-
-      <Section className="pt-0">
-        <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-6">
-          <h2 className="font-display text-lg font-semibold text-white">Where your data lives</h2>
-          <ul className="mt-3 space-y-1.5 text-sm text-gray-400">
-            <li>State (memory, profile, audit): <span className="font-mono text-gray-300">~/Library/Application Support/JarvisOS/state</span></li>
-            <li>Conversations: <span className="font-mono text-gray-300">~/Library/Application Support/JarvisOS/conversations/*.json</span></li>
-            <li>Workspace: <span className="font-mono text-gray-300">…/state/workspace</span></li>
-            <li>Bridge virtualenv: <span className="font-mono text-gray-300">~/Library/Application Support/JarvisOS/venv</span></li>
-          </ul>
-          <p className="mt-3 text-xs text-gray-500">Back up by copying that folder. Uninstall by deleting it.</p>
-        </div>
-      </Section>
-    </div>
     </>
   )
 }

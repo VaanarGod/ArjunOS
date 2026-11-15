@@ -1,4 +1,5 @@
 import Section from '../components/ui/Section'
+import Scene3D from '../components/three/Scene3D'
 import { GitBranch, CheckCircle2, Clock } from 'lucide-react'
 import { APP_VERSION, REPO_URL, RELEASES_URL } from '../data/content'
 
@@ -31,6 +32,9 @@ const next = [
 export default function Changelog() {
   return (
     <>
+      <div className="fixed inset-0 z-0"><Scene3D variant="timeline" /></div>
+      <div className="pointer-events-none fixed inset-0 bg-changelog-glow z-0" />
+      <div className="relative z-10">
       <Section>
         <div className="max-w-2xl">
           <p className="text-sm font-medium uppercase tracking-[0.2em] text-cyan">Changelog</p>
@@ -103,6 +107,7 @@ export default function Changelog() {
           </div>
         </div>
       </Section>
+    </div>
     </>
   )
 }
