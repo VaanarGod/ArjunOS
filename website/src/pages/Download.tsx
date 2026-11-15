@@ -6,6 +6,9 @@ import { APP_VERSION, APP_STATUS, MIN_MACOS, LICENSE, REPO_URL, RELEASES_URL, DO
 export default function DownloadPage() {
   return (
     <>
+      <div className="pointer-events-none fixed inset-0 bg-energy-waves z-0 opacity-80" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-cyan/20 blur-[120px] rounded-full pointer-events-none" />
+      <div className="relative z-10">
       <Section>
         <div className="mx-auto max-w-3xl text-center">
           <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl border border-cyan/30 bg-cyan/10">
@@ -139,6 +142,7 @@ scripts/package.sh --install    # ...and copy to ~/Applications`}
           <p className="mt-3 text-xs text-gray-500">Back up by copying that folder. Uninstall by deleting it.</p>
         </div>
       </Section>
+    </div>
     </>
   )
 }

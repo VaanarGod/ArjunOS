@@ -17,6 +17,8 @@ const iconMap = {
 export default function Features() {
   return (
     <>
+      <div className="pointer-events-none fixed inset-0 bg-holographic-grid opacity-40 z-0" />
+      <div className="relative z-10">
       <Section>
         <div className="max-w-2xl">
           <p className="text-sm font-medium uppercase tracking-[0.2em] text-cyan">Capabilities</p>
@@ -75,6 +77,7 @@ export default function Features() {
           </ul>
         </div>
       </Section>
+    </div>
     </>
   )
 }

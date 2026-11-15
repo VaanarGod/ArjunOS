@@ -20,6 +20,8 @@ const architecture = `┌──────────────────�
 export default function Product() {
   return (
     <>
+      <div className="pointer-events-none fixed inset-0 bg-glass-panels z-0" />
+      <div className="relative z-10">
       <Section>
         <div className="max-w-2xl">
           <p className="text-sm font-medium uppercase tracking-[0.2em] text-cyan">Product</p>
@@ -98,6 +100,7 @@ export default function Product() {
           </a>
         </div>
       </Section>
+    </div>
     </>
   )
 }

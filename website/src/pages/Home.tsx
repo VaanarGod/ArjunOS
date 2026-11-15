@@ -14,10 +14,11 @@ export default function Home() {
   return (
     <>
       <section className="relative flex min-h-[92vh] items-center overflow-hidden">
-        <div className="absolute inset-0 grid-bg opacity-30" />
-        <div className="absolute left-1/2 top-1/2 h-[600px] w-[600px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan/5 blur-[120px]" />
+        <div className="absolute inset-0 grid-bg opacity-20" />
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-void/50 to-void z-10 pointer-events-none" />
+        <div className="absolute left-1/2 top-1/2 h-[600px] w-[600px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan/10 blur-[150px]" />
 
-        <div className="relative mx-auto grid w-full max-w-6xl items-center gap-12 px-6 lg:grid-cols-2">
+        <div className="relative z-20 mx-auto grid w-full max-w-6xl items-center gap-12 px-6 lg:grid-cols-2 pointer-events-auto">
           <motion.div
             initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
@@ -70,9 +71,12 @@ export default function Home() {
             transition={{ duration: 1.2, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
             className="relative h-[380px] w-full sm:h-[460px] lg:h-[520px]"
           >
-            <Suspense fallback={<div className="h-full w-full" />}>
-              <AICore />
-            </Suspense>
+            {/* Scale the canvas wrapper up and overflow the container to avoid hard clipping */}
+            <div className="pointer-events-none absolute inset-[-20%] sm:inset-[-30%] lg:inset-[-40%] z-0">
+              <Suspense fallback={<div className="h-full w-full" />}>
+                <AICore />
+              </Suspense>
+            </div>
             <div className="pointer-events-none absolute inset-0 rounded-full border border-cyan/5" />
           </motion.div>
         </div>
