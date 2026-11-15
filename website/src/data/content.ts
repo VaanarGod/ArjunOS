@@ -5,7 +5,7 @@ export const MIN_MACOS = 'macOS 14 (Sonoma) or later'
 export const LICENSE = 'Apache-2.0'
 
 // Real repository links
-export const REPO_URL = 'https://github.com/VanaarGod/ArjunOS'
+export const REPO_URL = 'https://github.com/VaanarGod/ArjunOS'
 export const RELEASES_URL = `${REPO_URL}/releases`
 export const DOCS_URL = `${REPO_URL}/tree/main/docs`
 export const LICENSE_URL = `${REPO_URL}/blob/main/LICENSE`
